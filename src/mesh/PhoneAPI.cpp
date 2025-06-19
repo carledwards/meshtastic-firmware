@@ -477,10 +477,6 @@ size_t PhoneAPI::getFromRadio(uint8_t *buf)
             // Encapsulate as a FromRadio packet
             fromRadioScratch.which_payload_variant = meshtastic_FromRadio_packet_tag;
             fromRadioScratch.packet = *packetForPhone;
-            
-            // Clear LED message notifications when phone retrieves messages
-            clearMessageNotifications();
-            
             releasePhonePacket();
         }
         break;

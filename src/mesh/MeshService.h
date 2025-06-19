@@ -154,6 +154,10 @@ class MeshService
 
     uint32_t GetTimeSinceMeshPacket(const meshtastic_MeshPacket *mp);
 
+    /// Check for unread text messages in the queue
+    /// Returns: 0 = no messages, 1 = private messages, 2 = public messages
+    int checkUnreadMessages();
+
   private:
 #if HAS_GPS
     /// Called when our gps position has changed - updates nodedb and sends Location message out into the mesh

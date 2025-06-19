@@ -93,9 +93,6 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 
 // LED notification state management functions
 void setUserInteracted();
-void setPrivateMessageReceived();
-void setPublicMessageReceived();
-void clearMessageNotifications();
 
 // We default to 4MHz SPI, SPI mode 0
 extern SPISettings spiSettings;

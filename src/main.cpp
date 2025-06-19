@@ -299,8 +299,6 @@ uint32_t timeLastPowered = 0;
 
 // LED notification state variables for personalized notifications
 static bool userHasInteractedSinceLastMessage = false;
-static bool hasUnreadPrivateMessages = false;
-static bool hasUnreadPublicMessages = false;
 
 /**
  * Personalized LED blinker that shows message notifications like a badge
@@ -315,24 +313,30 @@ static int32_t ledBlinkerPersonalized()
 
     // Check if we should show LED notifications
     bool shouldShowLED = false;
-    bool isSlowBlink = false; // true for private messages (50/50), false for public messages (20/80)
+    bool isSlowBlink = false; // true for private messages (50/50), false for public messages (1/60)
 
     // Only show LED if all conditions are met:
     // 1. Device role is CLIENT or CLIENT_MUTE
     // 2. Device has external power (charging or USB connected)
     // 3. User has not interacted since last message
-    // 4. There are unread messages
+    // 4. There are unread messages in the queue
     if ((config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
          config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) &&
         (powerStatus->getIsCharging() || powerStatus->getHasUSB()) &&
         !userHasInteractedSinceLastMessage) {
         
-        if (hasUnreadPrivateMessages) {
-            shouldShowLED = true;
-            isSlowBlink = true; // Private messages get priority with slow blink
-        } else if (hasUnreadPublicMessages) {
-            shouldShowLED = true;
-            isSlowBlink = false; // Public messages get fast short blink
+        // Check the message queue for unread messages using MeshService
+        if (service) {
+            int messageType = service->checkUnreadMessages();
+            if (messageType == 1) {
+                // Private messages - slow blink
+                shouldShowLED = true;
+                isSlowBlink = true;
+            } else if (messageType == 2) {
+                // Public messages - fast short blink
+                shouldShowLED = true;
+                isSlowBlink = false;
+            }
         }
     }
 
@@ -343,54 +347,25 @@ static int32_t ledBlinkerPersonalized()
 
     // Implement the blinking pattern
     static bool ledOn = false;
-    static uint32_t lastToggle = 0;
-    uint32_t now = millis();
     
     if (isSlowBlink) {
-        // Slow blink: 50/50 duty cycle, same frequency as original (1 second period)
-        if (now - lastToggle >= 500) {
-            ledOn = !ledOn;
-            ledBlink.set(ledOn);
-            lastToggle = now;
-        }
-        return 100; // Check more frequently for smooth timing
+        // Slow blink: 50/50 duty cycle (500ms on, 500ms off)
+        ledOn = !ledOn;
+        ledBlink.set(ledOn);
+        return 500; // Return the time until next toggle
     } else {
-        // Fast short blink: 20/80 duty cycle, same frequency (1 second period)
-        if (ledOn && (now - lastToggle >= 100)) {
-            // LED has been on for 100ms, turn it off
-            ledOn = false;
-            ledBlink.set(false);
-            lastToggle = now;
-        } else if (!ledOn && (now - lastToggle >= 900)) {
-            // LED has been off for 900ms, turn it on
-            ledOn = true;
-            ledBlink.set(true);
-            lastToggle = now;
-        }
-        return 100; // Check more frequently for smooth timing
+        // faster blink / blip
+        ledOn = !ledOn;
+        ledBlink.set(ledOn);
+        return ledOn ? 50 : 3000; // 50ms on, 3000ms off
     }
 }
 
 /**
- * Functions to manage LED notification state
+ * Function to mark user interaction (called when user presses buttons)
  */
 void setUserInteracted() {
     userHasInteractedSinceLastMessage = true;
-}
-
-void setPrivateMessageReceived() {
-    hasUnreadPrivateMessages = true;
-    userHasInteractedSinceLastMessage = false; // Reset interaction flag on new message
-}
-
-void setPublicMessageReceived() {
-    hasUnreadPublicMessages = true;
-    userHasInteractedSinceLastMessage = false; // Reset interaction flag on new message
-}
-
-void clearMessageNotifications() {
-    hasUnreadPrivateMessages = false;
-    hasUnreadPublicMessages = false;
 }
 
 static Periodic *ledPeriodic;
