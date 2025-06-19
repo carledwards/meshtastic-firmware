@@ -297,6 +297,102 @@ static int32_t ledBlinker()
 
 uint32_t timeLastPowered = 0;
 
+// LED notification state variables for personalized notifications
+static bool userHasInteractedSinceLastMessage = false;
+static bool hasUnreadPrivateMessages = false;
+static bool hasUnreadPublicMessages = false;
+
+/**
+ * Personalized LED blinker that shows message notifications like a badge
+ * Slow blink (50/50 duty) for private messages, fast short blink (20/80 duty) for public messages
+ * LED off if user has interacted since last message or other conditions not met
+ */
+static int32_t ledBlinkerPersonalized()
+{
+    // Still set up the blinking interval but skip if heartbeat disabled
+    if (config.device.led_heartbeat_disabled)
+        return 1000;
+
+    // Check if we should show LED notifications
+    bool shouldShowLED = false;
+    bool isSlowBlink = false; // true for private messages (50/50), false for public messages (20/80)
+
+    // Only show LED if all conditions are met:
+    // 1. Device role is CLIENT or CLIENT_MUTE
+    // 2. Device has external power (charging or USB connected)
+    // 3. User has not interacted since last message
+    // 4. There are unread messages
+    if ((config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
+         config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) &&
+        (powerStatus->getIsCharging() || powerStatus->getHasUSB()) &&
+        !userHasInteractedSinceLastMessage) {
+        
+        if (hasUnreadPrivateMessages) {
+            shouldShowLED = true;
+            isSlowBlink = true; // Private messages get priority with slow blink
+        } else if (hasUnreadPublicMessages) {
+            shouldShowLED = true;
+            isSlowBlink = false; // Public messages get fast short blink
+        }
+    }
+
+    if (!shouldShowLED) {
+        ledBlink.set(false);
+        return 1000;
+    }
+
+    // Implement the blinking pattern
+    static bool ledOn = false;
+    static uint32_t lastToggle = 0;
+    uint32_t now = millis();
+    
+    if (isSlowBlink) {
+        // Slow blink: 50/50 duty cycle, same frequency as original (1 second period)
+        if (now - lastToggle >= 500) {
+            ledOn = !ledOn;
+            ledBlink.set(ledOn);
+            lastToggle = now;
+        }
+        return 100; // Check more frequently for smooth timing
+    } else {
+        // Fast short blink: 20/80 duty cycle, same frequency (1 second period)
+        if (ledOn && (now - lastToggle >= 100)) {
+            // LED has been on for 100ms, turn it off
+            ledOn = false;
+            ledBlink.set(false);
+            lastToggle = now;
+        } else if (!ledOn && (now - lastToggle >= 900)) {
+            // LED has been off for 900ms, turn it on
+            ledOn = true;
+            ledBlink.set(true);
+            lastToggle = now;
+        }
+        return 100; // Check more frequently for smooth timing
+    }
+}
+
+/**
+ * Functions to manage LED notification state
+ */
+void setUserInteracted() {
+    userHasInteractedSinceLastMessage = true;
+}
+
+void setPrivateMessageReceived() {
+    hasUnreadPrivateMessages = true;
+    userHasInteractedSinceLastMessage = false; // Reset interaction flag on new message
+}
+
+void setPublicMessageReceived() {
+    hasUnreadPublicMessages = true;
+    userHasInteractedSinceLastMessage = false; // Reset interaction flag on new message
+}
+
+void clearMessageNotifications() {
+    hasUnreadPrivateMessages = false;
+    hasUnreadPublicMessages = false;
+}
+
 static Periodic *ledPeriodic;
 static OSThread *powerFSMthread;
 static OSThread *ambientLightingThread;
@@ -487,7 +583,7 @@ void setup()
     // The ThinkNodes have their own blink logic
     ledPeriodic = new Periodic("Blink", elecrowLedBlinker);
 #else
-    ledPeriodic = new Periodic("Blink", ledBlinker);
+    ledPeriodic = new Periodic("Blink", ledBlinkerPersonalized);
 #endif
 
     fsInit();

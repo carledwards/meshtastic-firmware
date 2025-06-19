@@ -4,6 +4,7 @@
 #include "PowerFSM.h"
 #include "buzz.h"
 #include "configuration.h"
+#include "main.h"
 TextMessageModule *textMessageModule;
 
 ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp)
@@ -16,6 +17,17 @@ ProcessMessage TextMessageModule::handleReceived(const meshtastic_MeshPacket &mp
     // Keep a copy of the most recent text message.
     devicestate.rx_text_message = mp;
     devicestate.has_rx_text_message = true;
+
+    // Update LED notification state based on message type
+    if (mp.to == nodeDB->getNodeNum()) {
+        // Private message directed specifically to us
+        setPrivateMessageReceived();
+        LOG_DEBUG("Private message received, LED notification enabled");
+    } else if (mp.to == NODENUM_BROADCAST || mp.to == NODENUM_BROADCAST_NO_LORA) {
+        // Public broadcast message
+        setPublicMessageReceived();
+        LOG_DEBUG("Public message received, LED notification enabled");
+    }
 
     powerFSM.trigger(EVENT_RECEIVED_MSG);
     notifyObservers(&mp);
