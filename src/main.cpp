@@ -302,7 +302,7 @@ static bool userHasInteractedSinceLastMessage = false;
 
 /**
  * Personalized LED blinker that shows message notifications like a badge
- * Slow blink (50/50 duty) for private messages, fast short blink (20/80 duty) for public messages
+ * Slow blink (50/50 duty) for private messages, fast short blink (1/60 duty) for public messages
  * LED off if user has interacted since last message or other conditions not met
  */
 static int32_t ledBlinkerPersonalized()
