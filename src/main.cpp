@@ -297,6 +297,77 @@ static int32_t ledBlinker()
 
 uint32_t timeLastPowered = 0;
 
+// LED notification state variables for personalized notifications
+static bool userHasInteractedSinceLastMessage = false;
+
+/**
+ * Personalized LED blinker that shows message notifications like a badge
+ * Slow blink (50/50 duty) for private messages, fast short blink (1/60 duty) for public messages
+ * LED off if user has interacted since last message or other conditions not met
+ */
+static int32_t ledBlinkerPersonalized()
+{
+    // Still set up the blinking interval but skip if heartbeat disabled
+    if (config.device.led_heartbeat_disabled)
+        return 1000;
+
+    // Check if we should show LED notifications
+    bool shouldShowLED = false;
+    bool isSlowBlink = false; // true for private messages (50/50), false for public messages (1/60)
+
+    // Only show LED if all conditions are met:
+    // 1. Device role is CLIENT or CLIENT_MUTE
+    // 2. Device has external power (charging or USB connected)
+    // 3. User has not interacted since last message
+    // 4. There are unread messages in the queue
+    if ((config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
+         config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) &&
+        (powerStatus->getIsCharging() || powerStatus->getHasUSB()) &&
+        !userHasInteractedSinceLastMessage) {
+        
+        // Check the message queue for unread messages using MeshService
+        if (service) {
+            int messageType = service->checkUnreadMessages();
+            if (messageType == 1) {
+                // Private messages - slow blink
+                shouldShowLED = true;
+                isSlowBlink = true;
+            } else if (messageType == 2) {
+                // Public messages - fast short blink
+                shouldShowLED = true;
+                isSlowBlink = false;
+            }
+        }
+    }
+
+    if (!shouldShowLED) {
+        ledBlink.set(false);
+        return 1000;
+    }
+
+    // Implement the blinking pattern
+    static bool ledOn = false;
+    
+    if (isSlowBlink) {
+        // Slow blink: 50/50 duty cycle (500ms on, 500ms off)
+        ledOn = !ledOn;
+        ledBlink.set(ledOn);
+        return 500; // Return the time until next toggle
+    } else {
+        // faster blink / blip
+        ledOn = !ledOn;
+        ledBlink.set(ledOn);
+        return ledOn ? 50 : 3000; // 50ms on, 3000ms off
+    }
+}
+
+/**
+ * Function to mark user interaction (called when user presses buttons)
+ */
+void setUserInteracted() {
+    userHasInteractedSinceLastMessage = true;
+}
+
 static Periodic *ledPeriodic;
 static OSThread *powerFSMthread;
 static OSThread *ambientLightingThread;
@@ -487,7 +558,7 @@ void setup()
     // The ThinkNodes have their own blink logic
     ledPeriodic = new Periodic("Blink", elecrowLedBlinker);
 #else
-    ledPeriodic = new Periodic("Blink", ledBlinker);
+    ledPeriodic = new Periodic("Blink", ledBlinkerPersonalized);
 #endif
 
     fsInit();

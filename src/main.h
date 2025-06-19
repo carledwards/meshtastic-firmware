@@ -91,5 +91,8 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
                          meshtastic_TelemetrySensorType sensorType);
 #endif
 
+// LED notification state management functions
+void setUserInteracted();
+
 // We default to 4MHz SPI, SPI mode 0
 extern SPISettings spiSettings;

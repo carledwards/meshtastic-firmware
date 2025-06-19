@@ -427,3 +427,32 @@ uint32_t MeshService::GetTimeSinceMeshPacket(const meshtastic_MeshPacket *mp)
 
     return delta;
 }
+
+/// Check for unread text messages in the queue
+/// Returns: 0 = no messages, 1 = private messages, 2 = public messages
+int MeshService::checkUnreadMessages()
+{
+    bool hasPrivateMessages = false;
+    bool hasPublicMessages = false;
+    uint32_t ourNodeNum = nodeDB->getNodeNum();
+    
+    // Iterate through the toPhoneQueue to check for text messages
+    for (int i = 0; i < toPhoneQueue.numUsed(); i++) {
+        meshtastic_MeshPacket *p = toPhoneQueue.dequeuePtr(0);
+        if (p && isTextPayload(p)) {
+            // Check if this is a private message (directed to our node)
+            if (p->to == ourNodeNum) {
+                hasPrivateMessages = true;
+            } else if (p->to == NODENUM_BROADCAST || p->to == NODENUM_BROADCAST_NO_LORA) {
+                hasPublicMessages = true;
+            }
+        }
+        // Put the packet back on the queue
+        toPhoneQueue.enqueue(p, 0);
+    }
+    
+    // Return priority: private messages > public messages > none
+    if (hasPrivateMessages) return 1;
+    if (hasPublicMessages) return 2;
+    return 0;
+}
