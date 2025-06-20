@@ -414,10 +414,12 @@ static void drawCriticalFaultFrame(OLEDDisplay *display, OLEDDisplayUiState *sta
     display->drawString(0 + x, FONT_HEIGHT_MEDIUM + y, "For help, please visit \nmeshtastic.org");
 }
 
-// Ignore messages originating from phone (from the current node 0x0) unless range test or store and forward module are enabled
+// Only show actual text messages, not other packet types like node info, position updates, etc.
 static bool shouldDrawMessage(const meshtastic_MeshPacket *packet)
 {
-    return packet->from != 0 && !moduleConfig.store_forward.enabled;
+    return packet->from != 0 && 
+           !moduleConfig.store_forward.enabled &&
+           packet->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP;
 }
 
 // Draw power bars or a charging indicator on an image of a battery, determined by battery charge voltage or percentage.
@@ -2166,30 +2168,24 @@ void Screen::setFrames(FrameFocus focus)
         normalFrames[numframes++] = drawTextMessageFrame;
     }
 
-    // then all the nodes
-    // We only show a few nodes in our scrolling list - because meshes with many nodes would have too many screens
-    size_t numToShow = min(numMeshNodes, 4U);
-    for (size_t i = 0; i < numToShow; i++)
-        normalFrames[numframes++] = drawNodeInfo;
-
-    // then the debug info
-    //
-    // Since frames are basic function pointers, we have to use a helper to
-    // call a method on debugInfo object.
+    // Show device debug info (your local device info)
     fsi.positions.log = numframes;
     normalFrames[numframes++] = &Screen::drawDebugInfoTrampoline;
 
-    // call a method on debugInfoScreen object (for more details)
+    // Show device settings info (your local device settings)
     fsi.positions.settings = numframes;
     normalFrames[numframes++] = &Screen::drawDebugInfoSettingsTrampoline;
 
     fsi.positions.wifi = numframes;
 #if HAS_WIFI && !defined(ARCH_PORTDUINO)
     if (isWifiAvailable()) {
-        // call a method on debugInfoScreen object (for more details)
+        // Show WiFi info (your local WiFi status)
         normalFrames[numframes++] = &Screen::drawDebugInfoWiFiTrampoline;
     }
 #endif
+
+    // Skip other nodes' info - we don't want to see info about other mesh nodes
+    // Skip: drawNodeInfo frames for other nodes
 
     fsi.frameCount = numframes; // Total framecount is used to apply FOCUS_PRESERVE
     LOG_DEBUG("Finished build frames. numframes: %d", numframes);

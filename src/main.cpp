@@ -298,18 +298,29 @@ static int32_t ledBlinker()
 uint32_t timeLastPowered = 0;
 
 // LED notification state variables for personalized notifications
-static bool userHasInteractedSinceLastMessage = false;
+static bool hasUnreadPrivateMessages = false;
+static bool hasUnreadPublicMessages = false;
+static uint32_t lastReadMessageId = 0;
+static bool initialized = false;
 
 /**
  * Personalized LED blinker that shows message notifications like a badge
  * Slow blink (50/50 duty) for private messages, fast short blink (1/60 duty) for public messages
- * LED off if user has interacted since last message or other conditions not met
+ * LED off if user has cleared messages or other conditions not met
  */
 static int32_t ledBlinkerPersonalized()
 {
     // Still set up the blinking interval but skip if heartbeat disabled
     if (config.device.led_heartbeat_disabled)
         return 1000;
+
+    // Initialize lastReadMessageId from current message on first run
+    if (!initialized) {
+        if (devicestate.has_rx_text_message) {
+            lastReadMessageId = devicestate.rx_text_message.id;
+        }
+        initialized = true;
+    }
 
     // Check if we should show LED notifications
     bool shouldShowLED = false;
@@ -318,25 +329,19 @@ static int32_t ledBlinkerPersonalized()
     // Only show LED if all conditions are met:
     // 1. Device role is CLIENT or CLIENT_MUTE
     // 2. Device has external power (charging or USB connected)
-    // 3. User has not interacted since last message
-    // 4. There are unread messages in the queue
+    // 3. There are unread messages (flags set by callback)
     if ((config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
          config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) &&
-        (powerStatus->getIsCharging() || powerStatus->getHasUSB()) &&
-        !userHasInteractedSinceLastMessage) {
+        (powerStatus->getIsCharging() || powerStatus->getHasUSB())) {
         
-        // Check the message queue for unread messages using MeshService
-        if (service) {
-            int messageType = service->checkUnreadMessages();
-            if (messageType == 1) {
-                // Private messages - slow blink
-                shouldShowLED = true;
-                isSlowBlink = true;
-            } else if (messageType == 2) {
-                // Public messages - fast short blink
-                shouldShowLED = true;
-                isSlowBlink = false;
-            }
+        if (hasUnreadPrivateMessages) {
+            // Private messages - slow blink
+            shouldShowLED = true;
+            isSlowBlink = true;
+        } else if (hasUnreadPublicMessages) {
+            // Public messages - fast short blink
+            shouldShowLED = true;
+            isSlowBlink = false;
         }
     }
 
@@ -362,10 +367,34 @@ static int32_t ledBlinkerPersonalized()
 }
 
 /**
+ * Function called when new text messages arrive (called from MeshService)
+ */
+void onNewTextMessage(const meshtastic_MeshPacket *packet) {
+    if (packet->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP && 
+        packet->id != lastReadMessageId) {
+        
+        uint32_t ourNodeNum = nodeDB->getNodeNum();
+        
+        if (packet->to == ourNodeNum) {
+            hasUnreadPrivateMessages = true;
+        } else if (packet->to == NODENUM_BROADCAST || packet->to == NODENUM_BROADCAST_NO_LORA) {
+            hasUnreadPublicMessages = true;
+        }
+    }
+}
+
+/**
  * Function to mark user interaction (called when user presses buttons)
  */
 void setUserInteracted() {
-    userHasInteractedSinceLastMessage = true;
+    // Clear notification flags and update last read message ID
+    hasUnreadPrivateMessages = false;
+    hasUnreadPublicMessages = false;
+    
+    // Update lastReadMessageId to the current message if it exists
+    if (devicestate.has_rx_text_message) {
+        lastReadMessageId = devicestate.rx_text_message.id;
+    }
 }
 
 static Periodic *ledPeriodic;

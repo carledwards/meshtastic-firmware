@@ -294,6 +294,12 @@ void MeshService::sendToPhone(meshtastic_MeshPacket *p)
 #endif
 #endif
 
+    // Call LED notification callback for new text messages
+    if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+        extern void onNewTextMessage(const meshtastic_MeshPacket *packet);
+        onNewTextMessage(p);
+    }
+
     if (toPhoneQueue.numFree() == 0) {
         if (p->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP ||
             p->decoded.portnum == meshtastic_PortNum_RANGE_TEST_APP) {
