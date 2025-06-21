@@ -7,6 +7,7 @@
 #include "NodeDB.h"
 #include "PowerFSM.h"
 #include "PowerMon.h"
+#include "PowerProfileManager.h"
 #include "ReliableRouter.h"
 #include "airtime.h"
 #include "buzz.h"
@@ -326,13 +327,17 @@ static int32_t ledBlinkerPersonalized()
     bool shouldShowLED = false;
     bool isSlowBlink = false; // true for private messages (50/50), false for public messages (1/60)
 
+    // Check power status for debugging
+    bool hasUSB = powerStatus->getHasUSB();
+    bool isCharging = powerStatus->getIsCharging();
+        
     // Only show LED if all conditions are met:
     // 1. Device role is CLIENT or CLIENT_MUTE
     // 2. Device has external power (charging or USB connected)
     // 3. There are unread messages (flags set by callback)
     if ((config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
          config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) &&
-        (powerStatus->getIsCharging() || powerStatus->getHasUSB())) {
+        (isCharging || hasUSB)) {
         
         if (hasUnreadPrivateMessages) {
             // Private messages - slow blink
@@ -1387,6 +1392,10 @@ void setup()
     }
 
     // This must be _after_ service.init because we need our preferences loaded from flash to have proper timeout values
+    
+    // Initialize PowerProfileManager before PowerFSM so profiles are available
+    powerProfileManager.init();
+    
     PowerFSM_setup(); // we will transition to ON in a couple of seconds, FIXME, only do this for cold boots, not waking from SDS
     powerFSMthread = new PowerFSMThread();
 
@@ -1494,6 +1503,9 @@ void loop()
     nrf52Loop();
 #endif
     powerCommandsCheck();
+
+    // Process any pending PowerFSM recreations safely
+    PowerFSM_processRecreation();
 
 #ifdef DEBUG_STACK
     static uint32_t lastPrint = 0;
