@@ -66,18 +66,30 @@ static meshtastic_Config_PowerConfig_PowerProfile legacyNormalProfile = {
 static meshtastic_Config_PowerConfig_PowerProfile computedProfile;
 
 PowerProfileManager::PowerProfileManager() 
-    : currentProfile(nullptr), lastUSBStatus(false), granularEnabled(false)
+    : currentProfile(nullptr), granularEnabled(false), lastUSBStatus(false)
 {
 }
 
 void PowerProfileManager::init()
 {
     // Check if granular power management is enabled
-    granularEnabled.store(config.power.use_granular_power_management);
+    // granularEnabled.store(config.power.use_granular_power_management);
+    // TODO ce+ remove this after testing
+    granularEnabled.store(true);
     
     // Initialize USB status
     if (powerStatus) {
-        lastUSBStatus.store(powerStatus->getHasUSB());
+        bool initialUSBStatus = powerStatus->getHasUSB();
+        lastUSBStatus.store(initialUSBStatus);
+        
+        LOG_DEBUG("PowerProfileManager init: USB status = %d, cached as %d", 
+                 initialUSBStatus ? 1 : 0, lastUSBStatus.load() ? 1 : 0);
+        
+        // Register as observer for PowerStatus changes
+        powerStatusObserver.observe(&powerStatus->onNewStatus);
+    } else {
+        LOG_WARN("PowerProfileManager init: powerStatus is NULL!");
+        lastUSBStatus.store(false);  // Default to false if no PowerStatus
     }
     
     // Set initial active profile
@@ -242,7 +254,9 @@ const meshtastic_Config_PowerConfig_PowerProfile* PowerProfileManager::getActive
 
 bool PowerProfileManager::isGranularModeEnabled() const
 {
-    return granularEnabled.load();
+    // TODO ce+ remove this after testing
+    return true;
+//    return granularEnabled.load();
 }
 
 void PowerProfileManager::forceProfile(const meshtastic_Config_PowerConfig_PowerProfile* profile)
@@ -336,4 +350,48 @@ bool PowerProfileManager::isPowerStateAllowed(meshtastic_Config_PowerConfig_Powe
     // Only ON (4) would be allowed, but since we're checking if 'state' is allowed,
     // we need to check if 'state' is >= maxState
     return state >= maxState;
+}
+
+int PowerProfileManager::onPowerStatusUpdate(const meshtastic::Status *newStatus)
+{
+    // Check if this is actually a PowerStatus update
+    if (newStatus->getStatusType() != STATUS_TYPE_POWER) {
+        return 0; // Not a power status update, ignore
+    }
+    
+    // Cast to PowerStatus (safe because we checked the type)
+    const meshtastic::PowerStatus *powerStatus = static_cast<const meshtastic::PowerStatus *>(newStatus);
+    
+    // Check if USB status has changed
+    bool currentUSBStatus = powerStatus->getHasUSB();
+    bool previousUSBStatus = lastUSBStatus.load();
+    
+    LOG_DEBUG("PowerProfileManager received PowerStatus update: USB=%d, Charging=%d (cached USB was: %d)", 
+             currentUSBStatus ? 1 : 0, powerStatus->getIsCharging() ? 1 : 0, previousUSBStatus ? 1 : 0);
+    
+    if (currentUSBStatus != previousUSBStatus) {
+        LOG_DEBUG("PowerProfileManager detected USB status change: %d -> %d - forcing profile update", 
+                 previousUSBStatus ? 1 : 0, currentUSBStatus ? 1 : 0);
+        
+        // Update the cached USB status BEFORE calling updateActiveProfile
+        lastUSBStatus.store(currentUSBStatus);
+        
+        // Force profile update - USB status change always triggers PowerFSM recreation
+        // This ensures we react to power state changes even if profile content is identical
+        updateActiveProfile();  // Don't check return value
+        
+        LOG_DEBUG("PowerProfileManager about to trigger PowerFSM recreation due to power status change");
+        
+        #if !EXCLUDE_POWER_FSM
+        PowerFSM_scheduleRecreation();
+        LOG_DEBUG("PowerProfileManager triggered PowerFSM recreation");
+        #else
+        LOG_WARN("PowerProfileManager - PowerFSM recreation excluded by build config");
+        #endif
+        
+    } else {
+        LOG_DEBUG("PowerProfileManager - no USB status change, ignoring update");
+    }
+    
+    return 0;
 }

@@ -38,8 +38,8 @@ static void sdsEnter()
 {
     LOG_DEBUG("State: SDS");
     // Check if deep sleep is allowed by current power profile
-    if (!PowerProfile::allowDeepSleep()) {
-        LOG_INFO("Deep sleep blocked by power profile, staying in light sleep");
+    if (!powerProfileManager.allowDeepSleep()) {
+        LOG_DEBUG("Deep sleep blocked by power profile, staying in light sleep");
         powerFSM.trigger(EVENT_WAKE_TIMER); // Transition back to appropriate state
         return;
     }
@@ -139,14 +139,14 @@ static void nbEnter()
     screen->setOn(false);
 #ifdef ARCH_ESP32
     // Use power profile to determine Bluetooth state
-    setBluetoothEnable(PowerProfile::bluetoothEnabled());
+    setBluetoothEnable(powerProfileManager.bluetoothEnabled());
 #endif
 }
 
 static void darkEnter()
 {
     // Use power profile to determine Bluetooth state
-    setBluetoothEnable(PowerProfile::bluetoothEnabled());
+    setBluetoothEnable(powerProfileManager.bluetoothEnabled());
     screen->setOn(false);
 }
 
@@ -200,7 +200,7 @@ static void onIdle()
     // Check if we should transition to POWER state
     bool hasUSB = powerStatus && powerStatus->getHasUSB();
     if (hasUSB) {
-        LOG_INFO("Power connected in ON state");
+        LOG_DEBUG("Power connected in ON state");
         powerFSM.trigger(EVENT_POWER_CONNECTED);
     }
 }
@@ -235,15 +235,15 @@ static State* preservedState = nullptr;
 static bool fsmRecreationPending = false;
 static bool fsmInitialSetupComplete = false;
 
+
 /**
  * Create/recreate the PowerFSM based on current power profile settings.
  * This is the single source of truth for FSM structure.
  */
 static void PowerFSM_create()
 {
-    concurrency::LockGuard guard(&powerFSMLock);
-    
-    LOG_INFO("PowerFSM creating based on current power profile");
+    // Note: Lock is held by caller (PowerFSM_recreate or PowerFSM_setup)
+    LOG_DEBUG("PowerFSM creating based on current power profile");
     
     // Determine initial state based on hardware
     bool hasUSB = powerStatus && powerStatus->getHasUSB();
@@ -253,11 +253,11 @@ static void PowerFSM_create()
     if (preservedState) {
         initialState = preservedState;
         preservedState = nullptr;
-        LOG_INFO("PowerFSM recreating, preserving state: %s", initialState->name);
+        LOG_DEBUG("PowerFSM recreating, preserving state: %s", initialState->name);
     } else {
         // First time setup - start from BOOT
         initialState = &stateBOOT;
-        LOG_INFO("PowerFSM initial setup, starting from BOOT");
+        LOG_DEBUG("PowerFSM initial setup, starting from BOOT");
     }
     
     // Create new FSM instance
@@ -271,7 +271,7 @@ static void PowerFSM_create()
     // === Core State Transitions (Profile-Independent) ===
     
     // Wake timer transitions - use profile to determine target state
-    State* wakeTarget = PowerProfile::bluetoothEnabled() ? &stateDARK : &stateNB;
+    State* wakeTarget = powerProfileManager.bluetoothEnabled() ? &stateDARK : &stateNB;
     
 #ifdef ARCH_ESP32
     powerFSM.add_transition(&stateLS, wakeTarget, EVENT_WAKE_TIMER, NULL, "Wake timer");
@@ -341,19 +341,19 @@ static void PowerFSM_create()
 
     // Screen timeout transitions (always use profile values)
 #ifdef USE_EINK
-    if (PowerProfile::getScreenTimeoutSecs() > 0)
+    if (powerProfileManager.getScreenTimeoutSecs() > 0)
 #endif
     {
         powerFSM.add_timed_transition(&stateON, &stateDARK,
-                                      PowerProfile::getScreenTimeoutSecs() * 1000,
+                                      powerProfileManager.getScreenTimeoutSecs() * 1000,
                                       NULL, "Screen-on timeout");
         powerFSM.add_timed_transition(&statePOWER, &stateDARK,
-                                      PowerProfile::getScreenTimeoutSecs() * 1000,
+                                      powerProfileManager.getScreenTimeoutSecs() * 1000,
                                       NULL, "Screen-on timeout");
     }
 
     // Message and NodeDB update transitions based on screen responsiveness
-    if (PowerProfile::screenStaysResponsive()) {
+    if (powerProfileManager.screenStaysResponsive()) {
         LOG_DEBUG("Screen stays responsive - messages will wake screen");
         // These transitions wake the screen for messages
         powerFSM.add_transition(&stateLS, &stateON, EVENT_RECEIVED_MSG, NULL, "Received text (wake)");
@@ -385,37 +385,37 @@ static void PowerFSM_create()
                              config.device.role == meshtastic_Config_DeviceConfig_Role_TAK_TRACKER ||
                              config.device.role == meshtastic_Config_DeviceConfig_Role_SENSOR;
 
-    bool shouldEnableLightSleep = PowerProfile::allowLightSleep() && !isWifiAvailable() && !isTrackerOrSensor;
+    bool shouldEnableLightSleep = powerProfileManager.allowLightSleep() && !isWifiAvailable() && !isTrackerOrSensor;
 
     if (shouldEnableLightSleep) {
         powerFSM.add_timed_transition(&stateNB, &stateLS,
-                                      PowerProfile::getMinWakeSecs() * 1000, NULL,
+                                      powerProfileManager.getMinWakeSecs() * 1000, NULL,
                                       "Min wake timeout");
 
         powerFSM.add_timed_transition(&stateDARK, &stateLS,
-                                      PowerProfile::getBluetoothTimeoutSecs() * 1000, NULL,
+                                      powerProfileManager.getBluetoothTimeoutSecs() * 1000, NULL,
                                       "Bluetooth timeout");
     } else {
         // If not using light sleep, check periodically if config has drifted out of stateDark
         powerFSM.add_timed_transition(&stateDARK, &stateDARK,
-                                      PowerProfile::getScreenTimeoutSecs() * 1000,
+                                      powerProfileManager.getScreenTimeoutSecs() * 1000,
                                       NULL, "Screen-on timeout");
     }
 #endif // HAS_WIFI || !defined(MESHTASTIC_EXCLUDE_WIFI)
 #else // (not) ARCH_ESP32
     // If not ESP32, light-sleep not used. Check periodically if config has drifted out of stateDark
     powerFSM.add_timed_transition(&stateDARK, &stateDARK,
-                                  PowerProfile::getScreenTimeoutSecs() * 1000, NULL,
+                                  powerProfileManager.getScreenTimeoutSecs() * 1000, NULL,
                                   "Screen-on timeout");
 #endif
 
     // Run one iteration to enter the initial state
     powerFSM.run_machine();
     
-    LOG_INFO("PowerFSM creation complete - allow_deep_sleep=%d, allow_light_sleep=%d, screen_responsive=%d",
-             PowerProfile::allowDeepSleep() ? 1 : 0,
-             PowerProfile::allowLightSleep() ? 1 : 0,
-             PowerProfile::screenStaysResponsive() ? 1 : 0);
+    LOG_DEBUG("PowerFSM creation complete - allow_deep_sleep=%d, allow_light_sleep=%d, screen_responsive=%d",
+             powerProfileManager.allowDeepSleep() ? 1 : 0,
+             powerProfileManager.allowLightSleep() ? 1 : 0,
+             powerProfileManager.screenStaysResponsive() ? 1 : 0);
 }
 
 /**
@@ -428,7 +428,8 @@ void PowerFSM_recreate()
     
     // Preserve current state
     preservedState = powerFSM.getState();
-    LOG_INFO("PowerFSM recreating, preserving state: %s", preservedState ? preservedState->name : "NULL");
+    LOG_DEBUG("PowerFSM recreating, preserving state: %s", 
+             preservedState ? preservedState->name : "NULL");
     
     // Create new FSM with preserved state
     PowerFSM_create();
@@ -439,7 +440,7 @@ void PowerFSM_recreate()
  */
 void PowerFSM_setup()
 {
-    LOG_INFO("PowerFSM initial setup");
+    LOG_DEBUG("PowerFSM initial setup");
     PowerFSM_create();
     fsmInitialSetupComplete = true;
 }
@@ -475,8 +476,9 @@ void PowerFSM_scheduleRecreation()
  */
 void PowerFSM_reconfigure()
 {
-    LOG_INFO("PowerFSM_reconfigure called - scheduling recreation");
+    LOG_DEBUG("PowerFSM_reconfigure called - scheduling recreation");
     PowerFSM_scheduleRecreation();
 }
+
 
 #endif

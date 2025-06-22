@@ -3,6 +3,7 @@
 #include "configuration.h"
 #include "PowerStatus.h"
 #include "mesh/generated/meshtastic/config.pb.h"
+#include "Observer.h"
 #include <atomic>
 
 /**
@@ -17,11 +18,19 @@ private:
     // Atomic pointer to current active profile for thread safety
     std::atomic<const meshtastic_Config_PowerConfig_PowerProfile*> currentProfile;
     
-    // Cache the last known USB status to detect changes
-    std::atomic<bool> lastUSBStatus;
-    
     // Track if granular power management is enabled
     std::atomic<bool> granularEnabled;
+
+    // Observer for PowerStatus changes
+    CallbackObserver<PowerProfileManager, const meshtastic::Status *> powerStatusObserver =
+        CallbackObserver<PowerProfileManager, const meshtastic::Status *>(this, &PowerProfileManager::onPowerStatusUpdate);
+
+    /**
+     * @brief Callback for PowerStatus changes
+     * @param newStatus The new power status
+     * @return 0 on success
+     */
+    int onPowerStatusUpdate(const meshtastic::Status *newStatus);
 
     /**
      * @brief Determine which profile should be active based on current conditions
@@ -57,6 +66,9 @@ private:
     void applyUserOverrides(meshtastic_Config_PowerConfig_PowerProfile* profile, bool hasUSB);
 
 public:
+    // Cache the last known USB status to detect changes
+    std::atomic<bool> lastUSBStatus;
+    
     PowerProfileManager();
     
     /**
