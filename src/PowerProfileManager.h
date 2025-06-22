@@ -141,6 +141,24 @@ public:
     bool gpsEnabled() const;
     
     /**
+     * @brief Check if status LED notifications should be enabled based on power profile
+     * @return true if status LED should be active (typically only when on external power)
+     */
+    bool statusLedEnabled() const;
+    
+    /**
+     * @brief Get the LED mode from current power profile
+     * @return LED mode enum value
+     */
+    meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode getLedMode() const;
+    
+    /**
+     * @brief Get the LED brightness from current power profile
+     * @return Brightness level (0-255)
+     */
+    uint32_t getLedBrightness() const;
+    
+    /**
      * @brief Get screen timeout from current profile
      * @return Screen timeout in seconds, 0 for system default
      */

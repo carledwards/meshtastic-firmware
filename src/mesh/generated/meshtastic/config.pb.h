@@ -175,6 +175,16 @@ typedef enum _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState {
     meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON = 4
 } meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState;
 
+/* LED behavior mode */
+typedef enum _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode {
+    /* LED is completely disabled */
+    meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED = 0,
+    /* LED shows heartbeat (power/charging status indication) */
+    meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT = 1,
+    /* LED shows message indicator (message notifications) */
+    meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR = 2
+} meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode;
+
 typedef enum _meshtastic_Config_NetworkConfig_AddressMode {
     /* obtain ip address via DHCP */
     meshtastic_Config_NetworkConfig_AddressMode_DHCP = 0,
@@ -419,6 +429,15 @@ typedef struct _meshtastic_Config_PositionConfig {
     meshtastic_Config_PositionConfig_GpsMode gps_mode;
 } meshtastic_Config_PositionConfig;
 
+/* LED behavior configuration for this power profile */
+typedef struct _meshtastic_Config_PowerConfig_PowerProfile_LedConfig {
+    /* LED behavior mode for this power profile */
+    meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode mode;
+    /* Brightness level (0-255, 0 = off, 255 = full brightness)
+ Allows dimming LED on battery to save power */
+    uint32_t brightness;
+} meshtastic_Config_PowerConfig_PowerProfile_LedConfig;
+
 /* Individual power profile definition */
 typedef struct _meshtastic_Config_PowerConfig_PowerProfile {
     /* Allow the device to enter Super Deep Sleep (SDS) where LoRa radio is turned off
@@ -450,6 +469,9 @@ typedef struct _meshtastic_Config_PowerConfig_PowerProfile {
     uint32_t min_wake_secs;
     /* Maximum power saving state this profile is allowed to enter */
     meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState max_power_state;
+    /* LED behavior configuration for this power profile */
+    bool has_led_config;
+    meshtastic_Config_PowerConfig_PowerProfile_LedConfig led_config;
 } meshtastic_Config_PowerConfig_PowerProfile;
 
 /* Power Config\
@@ -728,6 +750,10 @@ extern "C" {
 #define _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON
 #define _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_ARRAYSIZE ((meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState)(meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON+1))
 
+#define _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MIN meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED
+#define _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MAX meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR
+#define _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_ARRAYSIZE ((meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode)(meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR+1))
+
 #define _meshtastic_Config_NetworkConfig_AddressMode_MIN meshtastic_Config_NetworkConfig_AddressMode_DHCP
 #define _meshtastic_Config_NetworkConfig_AddressMode_MAX meshtastic_Config_NetworkConfig_AddressMode_STATIC
 #define _meshtastic_Config_NetworkConfig_AddressMode_ARRAYSIZE ((meshtastic_Config_NetworkConfig_AddressMode)(meshtastic_Config_NetworkConfig_AddressMode_STATIC+1))
@@ -779,6 +805,8 @@ extern "C" {
 
 #define meshtastic_Config_PowerConfig_PowerProfile_max_power_state_ENUMTYPE meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState
 
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_mode_ENUMTYPE meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode
+
 #define meshtastic_Config_NetworkConfig_address_mode_ENUMTYPE meshtastic_Config_NetworkConfig_AddressMode
 
 
@@ -801,7 +829,8 @@ extern "C" {
 #define meshtastic_Config_DeviceConfig_init_default {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN}
 #define meshtastic_Config_PositionConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PositionConfig_GpsMode_MIN}
 #define meshtastic_Config_PowerConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_ProfileOverride_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_init_default, false, meshtastic_Config_PowerConfig_PowerProfile_init_default, 0}
-#define meshtastic_Config_PowerConfig_PowerProfile_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN}
+#define meshtastic_Config_PowerConfig_PowerProfile_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_default}
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_default {_meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MIN, 0}
 #define meshtastic_Config_NetworkConfig_init_default {0, "", "", "", 0, _meshtastic_Config_NetworkConfig_AddressMode_MIN, false, meshtastic_Config_NetworkConfig_IpV4Config_init_default, "", 0, 0}
 #define meshtastic_Config_NetworkConfig_IpV4Config_init_default {0, 0, 0, 0}
 #define meshtastic_Config_DisplayConfig_init_default {0, _meshtastic_Config_DisplayConfig_GpsCoordinateFormat_MIN, 0, 0, 0, _meshtastic_Config_DisplayConfig_DisplayUnits_MIN, _meshtastic_Config_DisplayConfig_OledType_MIN, _meshtastic_Config_DisplayConfig_DisplayMode_MIN, 0, 0, _meshtastic_Config_DisplayConfig_CompassOrientation_MIN, 0}
@@ -813,7 +842,8 @@ extern "C" {
 #define meshtastic_Config_DeviceConfig_init_zero {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN}
 #define meshtastic_Config_PositionConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PositionConfig_GpsMode_MIN}
 #define meshtastic_Config_PowerConfig_init_zero  {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_ProfileOverride_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_init_zero, false, meshtastic_Config_PowerConfig_PowerProfile_init_zero, 0}
-#define meshtastic_Config_PowerConfig_PowerProfile_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN}
+#define meshtastic_Config_PowerConfig_PowerProfile_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_zero}
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_zero {_meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MIN, 0}
 #define meshtastic_Config_NetworkConfig_init_zero {0, "", "", "", 0, _meshtastic_Config_NetworkConfig_AddressMode_MIN, false, meshtastic_Config_NetworkConfig_IpV4Config_init_zero, "", 0, 0}
 #define meshtastic_Config_NetworkConfig_IpV4Config_init_zero {0, 0, 0, 0}
 #define meshtastic_Config_DisplayConfig_init_zero {0, _meshtastic_Config_DisplayConfig_GpsCoordinateFormat_MIN, 0, 0, 0, _meshtastic_Config_DisplayConfig_DisplayUnits_MIN, _meshtastic_Config_DisplayConfig_OledType_MIN, _meshtastic_Config_DisplayConfig_DisplayMode_MIN, 0, 0, _meshtastic_Config_DisplayConfig_CompassOrientation_MIN, 0}
@@ -848,6 +878,8 @@ extern "C" {
 #define meshtastic_Config_PositionConfig_broadcast_smart_minimum_interval_secs_tag 11
 #define meshtastic_Config_PositionConfig_gps_en_gpio_tag 12
 #define meshtastic_Config_PositionConfig_gps_mode_tag 13
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_mode_tag 1
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_brightness_tag 2
 #define meshtastic_Config_PowerConfig_PowerProfile_allow_deep_sleep_tag 1
 #define meshtastic_Config_PowerConfig_PowerProfile_allow_light_sleep_tag 2
 #define meshtastic_Config_PowerConfig_PowerProfile_bluetooth_enabled_tag 3
@@ -858,6 +890,7 @@ extern "C" {
 #define meshtastic_Config_PowerConfig_PowerProfile_bluetooth_timeout_secs_tag 8
 #define meshtastic_Config_PowerConfig_PowerProfile_min_wake_secs_tag 9
 #define meshtastic_Config_PowerConfig_PowerProfile_max_power_state_tag 10
+#define meshtastic_Config_PowerConfig_PowerProfile_led_config_tag 11
 #define meshtastic_Config_PowerConfig_is_power_saving_tag 1
 #define meshtastic_Config_PowerConfig_on_battery_shutdown_after_secs_tag 2
 #define meshtastic_Config_PowerConfig_adc_multiplier_override_tag 3
@@ -1023,9 +1056,17 @@ X(a, STATIC,   SINGULAR, BOOL,     gps_enabled,       6) \
 X(a, STATIC,   SINGULAR, UINT32,   screen_timeout_secs,   7) \
 X(a, STATIC,   SINGULAR, UINT32,   bluetooth_timeout_secs,   8) \
 X(a, STATIC,   SINGULAR, UINT32,   min_wake_secs,     9) \
-X(a, STATIC,   SINGULAR, UENUM,    max_power_state,  10)
+X(a, STATIC,   SINGULAR, UENUM,    max_power_state,  10) \
+X(a, STATIC,   OPTIONAL, MESSAGE,  led_config,       11)
 #define meshtastic_Config_PowerConfig_PowerProfile_CALLBACK NULL
 #define meshtastic_Config_PowerConfig_PowerProfile_DEFAULT NULL
+#define meshtastic_Config_PowerConfig_PowerProfile_led_config_MSGTYPE meshtastic_Config_PowerConfig_PowerProfile_LedConfig
+
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_FIELDLIST(X, a) \
+X(a, STATIC,   SINGULAR, UENUM,    mode,              1) \
+X(a, STATIC,   SINGULAR, UINT32,   brightness,        2)
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_CALLBACK NULL
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_DEFAULT NULL
 
 #define meshtastic_Config_NetworkConfig_FIELDLIST(X, a) \
 X(a, STATIC,   SINGULAR, BOOL,     wifi_enabled,      1) \
@@ -1116,6 +1157,7 @@ extern const pb_msgdesc_t meshtastic_Config_DeviceConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_PositionConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_PowerConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_PowerConfig_PowerProfile_msg;
+extern const pb_msgdesc_t meshtastic_Config_PowerConfig_PowerProfile_LedConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_NetworkConfig_msg;
 extern const pb_msgdesc_t meshtastic_Config_NetworkConfig_IpV4Config_msg;
 extern const pb_msgdesc_t meshtastic_Config_DisplayConfig_msg;
@@ -1130,6 +1172,7 @@ extern const pb_msgdesc_t meshtastic_Config_SessionkeyConfig_msg;
 #define meshtastic_Config_PositionConfig_fields &meshtastic_Config_PositionConfig_msg
 #define meshtastic_Config_PowerConfig_fields &meshtastic_Config_PowerConfig_msg
 #define meshtastic_Config_PowerConfig_PowerProfile_fields &meshtastic_Config_PowerConfig_PowerProfile_msg
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_fields &meshtastic_Config_PowerConfig_PowerProfile_LedConfig_msg
 #define meshtastic_Config_NetworkConfig_fields &meshtastic_Config_NetworkConfig_msg
 #define meshtastic_Config_NetworkConfig_IpV4Config_fields &meshtastic_Config_NetworkConfig_IpV4Config_msg
 #define meshtastic_Config_DisplayConfig_fields &meshtastic_Config_DisplayConfig_msg
@@ -1147,8 +1190,9 @@ extern const pb_msgdesc_t meshtastic_Config_SessionkeyConfig_msg;
 #define meshtastic_Config_NetworkConfig_IpV4Config_size 20
 #define meshtastic_Config_NetworkConfig_size     204
 #define meshtastic_Config_PositionConfig_size    62
-#define meshtastic_Config_PowerConfig_PowerProfile_size 32
-#define meshtastic_Config_PowerConfig_size       124
+#define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_size 8
+#define meshtastic_Config_PowerConfig_PowerProfile_size 42
+#define meshtastic_Config_PowerConfig_size       144
 #define meshtastic_Config_SecurityConfig_size    178
 #define meshtastic_Config_SessionkeyConfig_size  0
 #define meshtastic_Config_size                   207

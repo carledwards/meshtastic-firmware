@@ -21,6 +21,9 @@ PB_BIND(meshtastic_Config_PowerConfig, meshtastic_Config_PowerConfig, AUTO)
 PB_BIND(meshtastic_Config_PowerConfig_PowerProfile, meshtastic_Config_PowerConfig_PowerProfile, AUTO)
 
 
+PB_BIND(meshtastic_Config_PowerConfig_PowerProfile_LedConfig, meshtastic_Config_PowerConfig_PowerProfile_LedConfig, AUTO)
+
+
 PB_BIND(meshtastic_Config_NetworkConfig, meshtastic_Config_NetworkConfig, AUTO)
 
 
@@ -40,6 +43,8 @@ PB_BIND(meshtastic_Config_SecurityConfig, meshtastic_Config_SecurityConfig, AUTO
 
 
 PB_BIND(meshtastic_Config_SessionkeyConfig, meshtastic_Config_SessionkeyConfig, AUTO)
+
+
 
 
 

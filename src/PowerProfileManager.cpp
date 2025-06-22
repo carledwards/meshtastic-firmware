@@ -16,10 +16,14 @@ static meshtastic_Config_PowerConfig_PowerProfile systemDefaultPluggedProfile = 
     .wifi_enabled = true,
     .screen_stays_responsive = true,
     .gps_enabled = true,
-    .screen_timeout_secs = 0,  // Use system default
+    .screen_timeout_secs = 30,  // 30 seconds for non-routers with power
     .bluetooth_timeout_secs = 0,  // Use system default
     .min_wake_secs = 0,  // Use system default
-    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR,  // Default to messages when plugged in
+        .brightness = 255  // Full brightness when on external power
+    }
 };
 
 static meshtastic_Config_PowerConfig_PowerProfile systemDefaultBatteryProfile = {
@@ -29,10 +33,14 @@ static meshtastic_Config_PowerConfig_PowerProfile systemDefaultBatteryProfile = 
     .wifi_enabled = false,  // Turn off WiFi to save power
     .screen_stays_responsive = false,  // Don't wake screen for packets
     .gps_enabled = true,  // Keep GPS on
-    .screen_timeout_secs = 30,  // Quick screen timeout
+    .screen_timeout_secs = 30,  // Quick screen timeout to save battery
     .bluetooth_timeout_secs = 30,  // Quick BT timeout
     .min_wake_secs = 5,  // Short wake time
-    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_NO_BLUETOOTH
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_NO_BLUETOOTH,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED,  // LED off to save battery
+        .brightness = 64  // Lower brightness default for battery
+    }
 };
 
 // Legacy profiles for backward compatibility
@@ -46,7 +54,11 @@ static meshtastic_Config_PowerConfig_PowerProfile legacyPowerSavingProfile = {
     .screen_timeout_secs = 0,
     .bluetooth_timeout_secs = 0,
     .min_wake_secs = 0,
-    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_SDS
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_SDS,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED,  // Legacy power saving disables LED
+        .brightness = 0
+    }
 };
 
 static meshtastic_Config_PowerConfig_PowerProfile legacyNormalProfile = {
@@ -59,7 +71,11 @@ static meshtastic_Config_PowerConfig_PowerProfile legacyNormalProfile = {
     .screen_timeout_secs = 0,
     .bluetooth_timeout_secs = 0,
     .min_wake_secs = 0,
-    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT,  // Legacy normal mode enables heartbeat
+        .brightness = 255
+    }
 };
 
 // Working profile that gets computed by layering system defaults + role modifiers + user overrides
@@ -197,13 +213,21 @@ void PowerProfileManager::applyRoleModifiers(meshtastic_Config_PowerConfig_Power
             profile->allow_light_sleep = false;  // Stay fully awake for immediate routing
             profile->min_wake_secs = 1;  // Quick response time
             profile->max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK;
+            profile->screen_timeout_secs = 1;  // Very quick screen timeout for routers
+            // Routers typically show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
             break;
             
         case meshtastic_Config_DeviceConfig_Role_TRACKER:
             // Trackers prioritize GPS and location updates
             profile->gps_enabled = true;
             profile->screen_timeout_secs = 10;  // Quick screen timeout to save power
-            // Allow some power saving but keep GPS active
+            // Trackers should show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
             break;
             
         case meshtastic_Config_DeviceConfig_Role_SENSOR:
@@ -211,6 +235,23 @@ void PowerProfileManager::applyRoleModifiers(meshtastic_Config_PowerConfig_Power
             profile->bluetooth_enabled = false;  // Usually don't need BT
             profile->screen_stays_responsive = false;  // Don't wake screen for packets
             profile->screen_timeout_secs = 5;  // Very quick screen timeout
+            // Sensors should show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
+            break;
+            
+        case meshtastic_Config_DeviceConfig_Role_REPEATER:
+            // Repeaters must stay awake to relay packets
+            profile->allow_deep_sleep = false;
+            profile->allow_light_sleep = false;  // Stay fully awake for immediate routing
+            profile->min_wake_secs = 1;  // Quick response time
+            profile->max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK;
+            profile->screen_timeout_secs = 1;  // Very quick screen timeout for repeaters
+            // Repeaters should show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
             break;
             
         case meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE:
@@ -303,6 +344,43 @@ bool PowerProfileManager::gpsEnabled() const
 {
     const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
     return profile->gps_enabled;
+}
+
+bool PowerProfileManager::statusLedEnabled() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    
+    // Check if LED is disabled globally in device config
+    if (config.device.led_heartbeat_disabled) {
+        return false;
+    }
+    
+    // Check if LED mode is not disabled
+    return profile->led_config.mode != meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED;
+}
+
+meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode PowerProfileManager::getLedMode() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    
+    // Check if LED is disabled globally in device config
+    if (config.device.led_heartbeat_disabled) {
+        return meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED;
+    }
+    
+    return profile->led_config.mode;
+}
+
+uint32_t PowerProfileManager::getLedBrightness() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    
+    // Check if LED is disabled globally in device config
+    if (config.device.led_heartbeat_disabled) {
+        return 0;
+    }
+    
+    return profile->led_config.brightness;
 }
 
 uint32_t PowerProfileManager::getScreenTimeoutSecs() const
