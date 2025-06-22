@@ -24,7 +24,7 @@ static meshtastic_Config_PowerConfig_PowerProfile systemDefaultPluggedProfile = 
 
 static meshtastic_Config_PowerConfig_PowerProfile systemDefaultBatteryProfile = {
     .allow_deep_sleep = false,  // Keep LoRa on for "always connected" use case
-    .allow_light_sleep = false,  // Keep CPU active for immediate response
+    .allow_light_sleep = true,  // Keep CPU active for immediate response
     .bluetooth_enabled = false,  // Turn off BT to save power
     .wifi_enabled = false,  // Turn off WiFi to save power
     .screen_stays_responsive = false,  // Don't wake screen for packets

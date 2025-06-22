@@ -429,19 +429,15 @@ class AnalogBatteryLevel : public HasBatteryLevel
 #ifdef EXT_PWR_DETECT
 #if defined(HELTEC_CAPSULE_SENSOR_V3) || defined(HELTEC_SENSOR_HUB)
         // if external powered that pin will be pulled down
-        if (digitalRead(EXT_PWR_DETECT) == LOW) {
-            return true;
-        }
-        // if it's not LOW - check the battery
+        return digitalRead(EXT_PWR_DETECT) == LOW;
 #else
         // if external powered that pin will be pulled up
-        if (digitalRead(EXT_PWR_DETECT) == HIGH) {
-            return true;
-        }
-        // if it's not HIGH - check the battery
+        return digitalRead(EXT_PWR_DETECT) == HIGH;
 #endif
-#endif
+#else
+        // Fallback to voltage-based detection only when no GPIO detection available
         return getBattVoltage() > chargingVolt;
+#endif
     }
 
     /// Assume charging if we have a battery and external power is connected.
