@@ -508,16 +508,16 @@ void PhoneAPI::sendConfigComplete()
     state = STATE_SEND_PACKETS;
     pauseBluetoothLogging = false;
     
-    // Phone has completed initial sync, clear any LED message notifications
-    setPhoneReceivedAllMessages();
+    // Phone has completed initial sync, acknowledge any current message (same as button press)
+    setUserInteracted();
 }
 
 void PhoneAPI::releasePhonePacket()
 {
     if (packetForPhone) {
-        // If this is a text message packet, notify the LED system that phone received it
+        // If this is a text message packet, mark it as acknowledged (same as button press)
         if (packetForPhone->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
-            setPhoneReceivedMessage(packetForPhone->id);
+            setUserInteracted();
         }
         
         service->releaseToPool(packetForPhone); // we just copied the bytes, so don't need this buffer anymore

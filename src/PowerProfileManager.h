@@ -188,6 +188,18 @@ public:
      * @return true if the state is allowed
      */
     bool isPowerStateAllowed(meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState state) const;
+    
+    /**
+     * @brief Get BLE wake mode from current profile
+     * @return BLE wake mode enum value
+     */
+    meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode getBleWakeMode() const;
+    
+    /**
+     * @brief Get BLE button timeout from current profile
+     * @return BLE button timeout in seconds, 0 for system default
+     */
+    uint32_t getBleButtonTimeoutSecs() const;
 };
 
 // Global instance

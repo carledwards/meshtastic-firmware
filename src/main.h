@@ -93,9 +93,6 @@ void scannerToSensorsMap(const std::unique_ptr<ScanI2CTwoWire> &i2cScanner, Scan
 
 // LED notification state management functions
 void setUserInteracted();
-void onNewTextMessage(const meshtastic_MeshPacket *packet);
-void setPhoneReceivedMessage(uint32_t messageId);
-void setPhoneReceivedAllMessages();
 
 // We default to 4MHz SPI, SPI mode 0
 extern SPISettings spiSettings;

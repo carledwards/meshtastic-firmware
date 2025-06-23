@@ -299,8 +299,6 @@ static int32_t ledBlinker()
 uint32_t timeLastPowered = 0;
 
 // LED notification state variables for personalized notifications
-static uint32_t lastPrivateMessageId = 0;
-static uint32_t lastPublicMessageId = 0;
 static uint32_t lastAcknowledgedMessageId = 0;
 static bool initialized = false;
 
@@ -339,7 +337,6 @@ static int32_t ledBlinkerPersonalized()
                 // Show heartbeat pattern based on power/charging status
                 static bool ledOn = false;
                 
-                bool hasUSB = powerStatus->getHasUSB();
                 bool isCharging = powerStatus->getIsCharging();
                 
                 // Remain on when fully charged or discharging above 10%
@@ -373,15 +370,25 @@ static int32_t ledBlinkerPersonalized()
                 if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
                     config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) {
                     
-                    // Check if we have unread private messages
-                    if (lastPrivateMessageId > lastAcknowledgedMessageId) {
-                        hasMessageNotification = true;
-                        isSlowBlink = true;  // Private messages - slow blink
-                    } 
-                    // Check if we have unread public messages (only if no private messages)
-                    else if (lastPublicMessageId > lastAcknowledgedMessageId) {
-                        hasMessageNotification = true;
-                        isSlowBlink = false; // Public messages - fast short blink
+                    // Check if we have a new message that hasn't been acknowledged
+                    // Since message IDs are not incremental, we check if the current message ID
+                    // is different from what we think is acknowledged
+                    if (devicestate.has_rx_text_message && 
+                        devicestate.rx_text_message.id != lastAcknowledgedMessageId) {
+                        
+                        uint32_t ourNodeNum = nodeDB->getNodeNum();
+                        
+                        // Check if it's a private message
+                        if (devicestate.rx_text_message.to == ourNodeNum) {
+                            hasMessageNotification = true;
+                            isSlowBlink = true;  // Private messages - slow blink
+                        } 
+                        // Check if it's a public message
+                        else if (devicestate.rx_text_message.to == NODENUM_BROADCAST || 
+                                 devicestate.rx_text_message.to == NODENUM_BROADCAST_NO_LORA) {
+                            hasMessageNotification = true;
+                            isSlowBlink = false; // Public messages - fast short blink
+                        }
                     }
                 }
 
@@ -413,76 +420,17 @@ static int32_t ledBlinkerPersonalized()
     }
 }
 
-/**
- * Function called when new text messages arrive (called from MeshService)
- */
-void onNewTextMessage(const meshtastic_MeshPacket *packet) {
-    if (packet->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
-        uint32_t ourNodeNum = nodeDB->getNodeNum();
-        
-        if (packet->to == ourNodeNum) {
-            // Private message - update private message ID
-            lastPrivateMessageId = packet->id;
-        } else if (packet->to == NODENUM_BROADCAST || packet->to == NODENUM_BROADCAST_NO_LORA) {
-            // Public message - update public message ID
-            lastPublicMessageId = packet->id;
-        }
-    }
-}
 
 /**
  * Function to mark user interaction (called when user presses buttons)
  */
 void setUserInteracted() {
-    // Update acknowledged message ID to the highest message ID we've seen
-    uint32_t latestMessageId = 0;
-    
+    // Mark the current message as acknowledged
     if (devicestate.has_rx_text_message) {
-        latestMessageId = devicestate.rx_text_message.id;
-    }
-    
-    // Also consider the latest private and public message IDs
-    if (lastPrivateMessageId > latestMessageId) {
-        latestMessageId = lastPrivateMessageId;
-    }
-    if (lastPublicMessageId > latestMessageId) {
-        latestMessageId = lastPublicMessageId;
-    }
-    
-    lastAcknowledgedMessageId = latestMessageId;
-}
-
-/**
- * Function to mark that phone has received messages up to a certain ID
- * This should be called when messages are sent to the phone via API
- */
-void setPhoneReceivedMessage(uint32_t messageId) {
-    if (messageId > lastAcknowledgedMessageId) {
-        lastAcknowledgedMessageId = messageId;
+        lastAcknowledgedMessageId = devicestate.rx_text_message.id;
     }
 }
 
-/**
- * Function to mark that phone has received all current messages
- * This can be called when phone connects and syncs all messages
- */
-void setPhoneReceivedAllMessages() {
-    uint32_t latestMessageId = 0;
-    
-    if (devicestate.has_rx_text_message) {
-        latestMessageId = devicestate.rx_text_message.id;
-    }
-    
-    // Also consider the latest private and public message IDs
-    if (lastPrivateMessageId > latestMessageId) {
-        latestMessageId = lastPrivateMessageId;
-    }
-    if (lastPublicMessageId > latestMessageId) {
-        latestMessageId = lastPublicMessageId;
-    }
-    
-    lastAcknowledgedMessageId = latestMessageId;
-}
 
 static Periodic *ledPeriodic;
 static OSThread *powerFSMthread;

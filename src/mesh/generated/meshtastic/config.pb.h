@@ -175,6 +175,17 @@ typedef enum _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState {
     meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON = 4
 } meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState;
 
+/* Bluetooth wake behavior configuration */
+typedef enum _meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode {
+    /* Default behavior - BLE wakes on packet reception (current behavior)
+ Device wakes from light sleep on packet → BLE starts → Phone can connect */
+    meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_AUTO = 0,
+    /* BLE only wakes on button press (power saving mode)
+ Device wakes from light sleep on packet → processes packet → stays in light sleep (BLE off)
+ BLE only starts when user presses button, eliminating reconnection data dumps */
+    meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_BUTTON_ONLY = 1
+} meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode;
+
 /* LED behavior mode */
 typedef enum _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode {
     /* LED is completely disabled */
@@ -472,6 +483,13 @@ typedef struct _meshtastic_Config_PowerConfig_PowerProfile {
     /* LED behavior configuration for this power profile */
     bool has_led_config;
     meshtastic_Config_PowerConfig_PowerProfile_LedConfig led_config;
+    /* Controls when Bluetooth becomes active in power saving modes
+ Defaults to BLE_WAKE_AUTO for backward compatibility */
+    meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode ble_wake_mode;
+    /* How long (in seconds) BLE stays active after button press in BLE_WAKE_BUTTON_ONLY mode
+ 0 uses system default (300 seconds / 5 minutes)
+ UINT32_MAX keeps BLE active until manually turned off */
+    uint32_t ble_button_timeout_secs;
 } meshtastic_Config_PowerConfig_PowerProfile;
 
 /* Power Config\
@@ -750,6 +768,10 @@ extern "C" {
 #define _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON
 #define _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_ARRAYSIZE ((meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState)(meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON+1))
 
+#define _meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_MIN meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_AUTO
+#define _meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_MAX meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_BUTTON_ONLY
+#define _meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_ARRAYSIZE ((meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode)(meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_BUTTON_ONLY+1))
+
 #define _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MIN meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED
 #define _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MAX meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR
 #define _meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_ARRAYSIZE ((meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode)(meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR+1))
@@ -804,6 +826,7 @@ extern "C" {
 #define meshtastic_Config_PowerConfig_force_profile_ENUMTYPE meshtastic_Config_PowerConfig_ProfileOverride
 
 #define meshtastic_Config_PowerConfig_PowerProfile_max_power_state_ENUMTYPE meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState
+#define meshtastic_Config_PowerConfig_PowerProfile_ble_wake_mode_ENUMTYPE meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode
 
 #define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_mode_ENUMTYPE meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode
 
@@ -829,7 +852,7 @@ extern "C" {
 #define meshtastic_Config_DeviceConfig_init_default {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN}
 #define meshtastic_Config_PositionConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PositionConfig_GpsMode_MIN}
 #define meshtastic_Config_PowerConfig_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_ProfileOverride_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_init_default, false, meshtastic_Config_PowerConfig_PowerProfile_init_default, 0}
-#define meshtastic_Config_PowerConfig_PowerProfile_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_default}
+#define meshtastic_Config_PowerConfig_PowerProfile_init_default {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_default, _meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_MIN, 0}
 #define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_default {_meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MIN, 0}
 #define meshtastic_Config_NetworkConfig_init_default {0, "", "", "", 0, _meshtastic_Config_NetworkConfig_AddressMode_MIN, false, meshtastic_Config_NetworkConfig_IpV4Config_init_default, "", 0, 0}
 #define meshtastic_Config_NetworkConfig_IpV4Config_init_default {0, 0, 0, 0}
@@ -842,7 +865,7 @@ extern "C" {
 #define meshtastic_Config_DeviceConfig_init_zero {_meshtastic_Config_DeviceConfig_Role_MIN, 0, 0, 0, _meshtastic_Config_DeviceConfig_RebroadcastMode_MIN, 0, 0, 0, 0, "", 0, _meshtastic_Config_DeviceConfig_BuzzerMode_MIN}
 #define meshtastic_Config_PositionConfig_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PositionConfig_GpsMode_MIN}
 #define meshtastic_Config_PowerConfig_init_zero  {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_ProfileOverride_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_init_zero, false, meshtastic_Config_PowerConfig_PowerProfile_init_zero, 0}
-#define meshtastic_Config_PowerConfig_PowerProfile_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_zero}
+#define meshtastic_Config_PowerConfig_PowerProfile_init_zero {0, 0, 0, 0, 0, 0, 0, 0, 0, _meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MIN, false, meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_zero, _meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_MIN, 0}
 #define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_init_zero {_meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MIN, 0}
 #define meshtastic_Config_NetworkConfig_init_zero {0, "", "", "", 0, _meshtastic_Config_NetworkConfig_AddressMode_MIN, false, meshtastic_Config_NetworkConfig_IpV4Config_init_zero, "", 0, 0}
 #define meshtastic_Config_NetworkConfig_IpV4Config_init_zero {0, 0, 0, 0}
@@ -891,6 +914,8 @@ extern "C" {
 #define meshtastic_Config_PowerConfig_PowerProfile_min_wake_secs_tag 9
 #define meshtastic_Config_PowerConfig_PowerProfile_max_power_state_tag 10
 #define meshtastic_Config_PowerConfig_PowerProfile_led_config_tag 11
+#define meshtastic_Config_PowerConfig_PowerProfile_ble_wake_mode_tag 12
+#define meshtastic_Config_PowerConfig_PowerProfile_ble_button_timeout_secs_tag 13
 #define meshtastic_Config_PowerConfig_is_power_saving_tag 1
 #define meshtastic_Config_PowerConfig_on_battery_shutdown_after_secs_tag 2
 #define meshtastic_Config_PowerConfig_adc_multiplier_override_tag 3
@@ -1057,7 +1082,9 @@ X(a, STATIC,   SINGULAR, UINT32,   screen_timeout_secs,   7) \
 X(a, STATIC,   SINGULAR, UINT32,   bluetooth_timeout_secs,   8) \
 X(a, STATIC,   SINGULAR, UINT32,   min_wake_secs,     9) \
 X(a, STATIC,   SINGULAR, UENUM,    max_power_state,  10) \
-X(a, STATIC,   OPTIONAL, MESSAGE,  led_config,       11)
+X(a, STATIC,   OPTIONAL, MESSAGE,  led_config,       11) \
+X(a, STATIC,   SINGULAR, UENUM,    ble_wake_mode,    12) \
+X(a, STATIC,   SINGULAR, UINT32,   ble_button_timeout_secs,  13)
 #define meshtastic_Config_PowerConfig_PowerProfile_CALLBACK NULL
 #define meshtastic_Config_PowerConfig_PowerProfile_DEFAULT NULL
 #define meshtastic_Config_PowerConfig_PowerProfile_led_config_MSGTYPE meshtastic_Config_PowerConfig_PowerProfile_LedConfig
@@ -1191,8 +1218,8 @@ extern const pb_msgdesc_t meshtastic_Config_SessionkeyConfig_msg;
 #define meshtastic_Config_NetworkConfig_size     204
 #define meshtastic_Config_PositionConfig_size    62
 #define meshtastic_Config_PowerConfig_PowerProfile_LedConfig_size 8
-#define meshtastic_Config_PowerConfig_PowerProfile_size 42
-#define meshtastic_Config_PowerConfig_size       144
+#define meshtastic_Config_PowerConfig_PowerProfile_size 50
+#define meshtastic_Config_PowerConfig_size       160
 #define meshtastic_Config_SecurityConfig_size    178
 #define meshtastic_Config_SessionkeyConfig_size  0
 #define meshtastic_Config_size                   207

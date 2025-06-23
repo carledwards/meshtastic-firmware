@@ -23,7 +23,9 @@ static meshtastic_Config_PowerConfig_PowerProfile systemDefaultPluggedProfile = 
     .led_config = {
         .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR,  // Default to messages when plugged in
         .brightness = 255  // Full brightness when on external power
-    }
+    },
+    .ble_wake_mode = meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_AUTO,  // Auto wake when plugged in
+    .ble_button_timeout_secs = 0  // Use system default
 };
 
 static meshtastic_Config_PowerConfig_PowerProfile systemDefaultBatteryProfile = {
@@ -40,7 +42,9 @@ static meshtastic_Config_PowerConfig_PowerProfile systemDefaultBatteryProfile = 
     .led_config = {
         .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED,  // LED off to save battery
         .brightness = 64  // Lower brightness default for battery
-    }
+    },
+    .ble_wake_mode = meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_BUTTON_ONLY,  // Button-only for power savings
+    .ble_button_timeout_secs = 300  // 5 minutes timeout after button press
 };
 
 // Legacy profiles for backward compatibility
@@ -472,4 +476,20 @@ int PowerProfileManager::onPowerStatusUpdate(const meshtastic::Status *newStatus
     }
     
     return 0;
+}
+
+meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode PowerProfileManager::getBleWakeMode() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->ble_wake_mode;
+}
+
+uint32_t PowerProfileManager::getBleButtonTimeoutSecs() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    if (profile->ble_button_timeout_secs > 0) {
+        return profile->ble_button_timeout_secs;
+    }
+    // Fall back to system default (5 minutes)
+    return 300;
 }
