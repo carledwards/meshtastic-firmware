@@ -7,6 +7,7 @@
 #include "NodeDB.h"
 #include "PowerFSM.h"
 #include "PowerMon.h"
+#include "PowerProfileManager.h"
 #include "ReliableRouter.h"
 #include "airtime.h"
 #include "buzz.h"
@@ -298,75 +299,138 @@ static int32_t ledBlinker()
 uint32_t timeLastPowered = 0;
 
 // LED notification state variables for personalized notifications
-static bool userHasInteractedSinceLastMessage = false;
+static uint32_t lastAcknowledgedMessageId = 0;
+static bool initialized = false;
 
 /**
- * Personalized LED blinker that shows message notifications like a badge
- * Slow blink (50/50 duty) for private messages, fast short blink (1/60 duty) for public messages
- * LED off if user has interacted since last message or other conditions not met
+ * Power profile aware LED blinker that shows heartbeat or message notifications
+ * Uses power profile configuration to determine LED behavior based on power source and device role
  */
 static int32_t ledBlinkerPersonalized()
 {
-    // Still set up the blinking interval but skip if heartbeat disabled
-    if (config.device.led_heartbeat_disabled)
-        return 1000;
-
-    // Check if we should show LED notifications
-    bool shouldShowLED = false;
-    bool isSlowBlink = false; // true for private messages (50/50), false for public messages (1/60)
-
-    // Only show LED if all conditions are met:
-    // 1. Device role is CLIENT or CLIENT_MUTE
-    // 2. Device has external power (charging or USB connected)
-    // 3. User has not interacted since last message
-    // 4. There are unread messages in the queue
-    if ((config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
-         config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) &&
-        (powerStatus->getIsCharging() || powerStatus->getHasUSB()) &&
-        !userHasInteractedSinceLastMessage) {
-        
-        // Check the message queue for unread messages using MeshService
-        if (service) {
-            int messageType = service->checkUnreadMessages();
-            if (messageType == 1) {
-                // Private messages - slow blink
-                shouldShowLED = true;
-                isSlowBlink = true;
-            } else if (messageType == 2) {
-                // Public messages - fast short blink
-                shouldShowLED = true;
-                isSlowBlink = false;
-            }
-        }
-    }
-
-    if (!shouldShowLED) {
+    // Check if LED is enabled by power profile
+    if (!powerProfileManager.statusLedEnabled()) {
         ledBlink.set(false);
         return 1000;
     }
 
-    // Implement the blinking pattern
-    static bool ledOn = false;
+    // Get LED mode from power profile
+    auto ledMode = powerProfileManager.getLedMode();
     
-    if (isSlowBlink) {
-        // Slow blink: 50/50 duty cycle (500ms on, 500ms off)
-        ledOn = !ledOn;
-        ledBlink.set(ledOn);
-        return 500; // Return the time until next toggle
-    } else {
-        // faster blink / blip
-        ledOn = !ledOn;
-        ledBlink.set(ledOn);
-        return ledOn ? 50 : 3000; // 50ms on, 3000ms off
+    // Initialize lastAcknowledgedMessageId from current message on first run
+    if (!initialized) {
+        if (devicestate.has_rx_text_message) {
+            lastAcknowledgedMessageId = devicestate.rx_text_message.id;
+        }
+        initialized = true;
+    }
+
+    // Handle LED mode - either heartbeat OR message indicator, not both
+    switch (ledMode) {
+        case meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED:
+            // LED disabled - should not reach here due to statusLedEnabled() check above
+            ledBlink.set(false);
+            return 1000;
+            
+        case meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT:
+            {
+                // Show heartbeat pattern based on power/charging status
+                static bool ledOn = false;
+                
+                bool isCharging = powerStatus->getIsCharging();
+                
+                // Remain on when fully charged or discharging above 10%
+                if ((isCharging && powerStatus->getBatteryChargePercent() >= 100) ||
+                    (!isCharging && powerStatus->getBatteryChargePercent() >= 10)) {
+                    ledOn = true;
+                } else {
+                    ledOn ^= 1;
+                }
+                
+                ledBlink.set(ledOn);
+                
+                // When charging, blink 0.5Hz square wave rate to indicate that
+                if (isCharging) {
+                    return 500;
+                }
+                // Blink rapidly when almost empty or if battery is not connected
+                if ((!isCharging && powerStatus->getBatteryChargePercent() < 10) || !powerStatus->getHasBattery()) {
+                    return 250;
+                }
+                
+                return 1000;
+            }
+            
+        case meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR:
+            {
+                // Show message notifications (only for CLIENT roles)
+                bool hasMessageNotification = false;
+                bool isSlowBlink = false;
+                
+                if (config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT || 
+                    config.device.role == meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE) {
+                    
+                    // Check if we have a new message that hasn't been acknowledged
+                    // Since message IDs are not incremental, we check if the current message ID
+                    // is different from what we think is acknowledged
+                    if (devicestate.has_rx_text_message && 
+                        devicestate.rx_text_message.id != lastAcknowledgedMessageId) {
+                        
+                        uint32_t ourNodeNum = nodeDB->getNodeNum();
+                        
+                        // Check if it's a private message
+                        if (devicestate.rx_text_message.to == ourNodeNum) {
+                            hasMessageNotification = true;
+                            isSlowBlink = true;  // Private messages - slow blink
+                        } 
+                        // Check if it's a public message
+                        else if (devicestate.rx_text_message.to == NODENUM_BROADCAST || 
+                                 devicestate.rx_text_message.to == NODENUM_BROADCAST_NO_LORA) {
+                            hasMessageNotification = true;
+                            isSlowBlink = false; // Public messages - fast short blink
+                        }
+                    }
+                }
+
+                if (hasMessageNotification) {
+                    static bool ledOn = false;
+                    
+                    if (isSlowBlink) {
+                        // Slow blink: 50/50 duty cycle (500ms on, 500ms off)
+                        ledOn = !ledOn;
+                        ledBlink.set(ledOn);
+                        return 500;
+                    } else {
+                        // Fast short blink: 50ms on, 3000ms off
+                        ledOn = !ledOn;
+                        ledBlink.set(ledOn);
+                        return ledOn ? 50 : 3000;
+                    }
+                } else {
+                    // No messages to show
+                    ledBlink.set(false);
+                    return 1000;
+                }
+            }
+            
+        default:
+            // Unknown mode - disable LED
+            ledBlink.set(false);
+            return 1000;
     }
 }
+
 
 /**
  * Function to mark user interaction (called when user presses buttons)
  */
 void setUserInteracted() {
-    userHasInteractedSinceLastMessage = true;
+    // Mark the current message as acknowledged
+    if (devicestate.has_rx_text_message) {
+        lastAcknowledgedMessageId = devicestate.rx_text_message.id;
+    }
 }
+
 
 static Periodic *ledPeriodic;
 static OSThread *powerFSMthread;
@@ -1358,6 +1422,10 @@ void setup()
     }
 
     // This must be _after_ service.init because we need our preferences loaded from flash to have proper timeout values
+    
+    // Initialize PowerProfileManager before PowerFSM so profiles are available
+    powerProfileManager.init();
+    
     PowerFSM_setup(); // we will transition to ON in a couple of seconds, FIXME, only do this for cold boots, not waking from SDS
     powerFSMthread = new PowerFSMThread();
 
@@ -1465,6 +1533,9 @@ void loop()
     nrf52Loop();
 #endif
     powerCommandsCheck();
+
+    // Process any pending PowerFSM recreations safely
+    PowerFSM_processRecreation();
 
 #ifdef DEBUG_STACK
     static uint32_t lastPrint = 0;

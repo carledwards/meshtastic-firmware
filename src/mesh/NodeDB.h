@@ -234,6 +234,9 @@ class NodeDB
     // returns true if the maximum number of nodes is reached or we are running low on memory
     bool isFull();
 
+    // Adaptive memory management - cleanup oldest nodes when memory gets tight
+    void cleanupOldestNodes(uint32_t targetFreeHeap);
+
     void clearLocalPosition();
 
     void setLocalPosition(meshtastic_Position position, bool timeOnly = false)

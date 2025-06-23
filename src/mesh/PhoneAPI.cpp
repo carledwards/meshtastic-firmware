@@ -507,11 +507,19 @@ void PhoneAPI::sendConfigComplete()
     config_nonce = 0;
     state = STATE_SEND_PACKETS;
     pauseBluetoothLogging = false;
+    
+    // Phone has completed initial sync, acknowledge any current message (same as button press)
+    setUserInteracted();
 }
 
 void PhoneAPI::releasePhonePacket()
 {
     if (packetForPhone) {
+        // If this is a text message packet, mark it as acknowledged (same as button press)
+        if (packetForPhone->decoded.portnum == meshtastic_PortNum_TEXT_MESSAGE_APP) {
+            setUserInteracted();
+        }
+        
         service->releaseToPool(packetForPhone); // we just copied the bytes, so don't need this buffer anymore
         packetForPhone = NULL;
     }

@@ -48,4 +48,8 @@ extern Fsm powerFSM;
 extern State stateON, statePOWER, stateSERIAL, stateDARK;
 
 void PowerFSM_setup();
+void PowerFSM_recreate();
+void PowerFSM_processRecreation();
+void PowerFSM_scheduleRecreation();
+void PowerFSM_reconfigure();
 #endif

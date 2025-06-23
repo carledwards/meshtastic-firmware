@@ -1,0 +1,495 @@
+#include "PowerProfileManager.h"
+#include "PowerStatus.h"
+#include "configuration.h"
+#include "Default.h"
+#include "main.h"
+#include "PowerFSM.h"
+
+// Global instance
+PowerProfileManager powerProfileManager;
+
+// System default profiles - these provide sensible defaults for all devices
+static meshtastic_Config_PowerConfig_PowerProfile systemDefaultPluggedProfile = {
+    .allow_deep_sleep = false,
+    .allow_light_sleep = false,
+    .bluetooth_enabled = true,
+    .wifi_enabled = true,
+    .screen_stays_responsive = true,
+    .gps_enabled = true,
+    .screen_timeout_secs = 30,  // 30 seconds for non-routers with power
+    .bluetooth_timeout_secs = 0,  // Use system default
+    .min_wake_secs = 0,  // Use system default
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_ON,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR,  // Default to messages when plugged in
+        .brightness = 255  // Full brightness when on external power
+    },
+    .ble_wake_mode = meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_AUTO,  // Auto wake when plugged in
+    .ble_button_timeout_secs = 0  // Use system default
+};
+
+static meshtastic_Config_PowerConfig_PowerProfile systemDefaultBatteryProfile = {
+    .allow_deep_sleep = false,  // Keep LoRa on for "always connected" use case
+    .allow_light_sleep = true,  // Keep CPU active for immediate response
+    .bluetooth_enabled = false,  // Turn off BT to save power
+    .wifi_enabled = false,  // Turn off WiFi to save power
+    .screen_stays_responsive = false,  // Don't wake screen for packets
+    .gps_enabled = true,  // Keep GPS on
+    .screen_timeout_secs = 30,  // Quick screen timeout to save battery
+    .bluetooth_timeout_secs = 30,  // Quick BT timeout
+    .min_wake_secs = 5,  // Short wake time
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_NO_BLUETOOTH,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED,  // LED off to save battery
+        .brightness = 64  // Lower brightness default for battery
+    },
+    .ble_wake_mode = meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode_BLE_WAKE_BUTTON_ONLY,  // Button-only for power savings
+    .ble_button_timeout_secs = 300  // 5 minutes timeout after button press
+};
+
+// Legacy profiles for backward compatibility
+static meshtastic_Config_PowerConfig_PowerProfile legacyPowerSavingProfile = {
+    .allow_deep_sleep = true,
+    .allow_light_sleep = true,
+    .bluetooth_enabled = false,
+    .wifi_enabled = false,
+    .screen_stays_responsive = true,
+    .gps_enabled = true,
+    .screen_timeout_secs = 0,
+    .bluetooth_timeout_secs = 0,
+    .min_wake_secs = 0,
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_SDS,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED,  // Legacy power saving disables LED
+        .brightness = 0
+    }
+};
+
+static meshtastic_Config_PowerConfig_PowerProfile legacyNormalProfile = {
+    .allow_deep_sleep = false,
+    .allow_light_sleep = false,
+    .bluetooth_enabled = true,
+    .wifi_enabled = true,
+    .screen_stays_responsive = true,
+    .gps_enabled = true,
+    .screen_timeout_secs = 0,
+    .bluetooth_timeout_secs = 0,
+    .min_wake_secs = 0,
+    .max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK,
+    .led_config = {
+        .mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT,  // Legacy normal mode enables heartbeat
+        .brightness = 255
+    }
+};
+
+// Working profile that gets computed by layering system defaults + role modifiers + user overrides
+static meshtastic_Config_PowerConfig_PowerProfile computedProfile;
+
+PowerProfileManager::PowerProfileManager() 
+    : currentProfile(nullptr), granularEnabled(false), lastUSBStatus(false)
+{
+}
+
+void PowerProfileManager::init()
+{
+    // Check if granular power management is enabled
+    // granularEnabled.store(config.power.use_granular_power_management);
+    // TODO ce+ remove this after testing
+    granularEnabled.store(true);
+    
+    // Initialize USB status
+    if (powerStatus) {
+        bool initialUSBStatus = powerStatus->getHasUSB();
+        lastUSBStatus.store(initialUSBStatus);
+        
+        LOG_DEBUG("PowerProfileManager init: USB status = %d, cached as %d", 
+                 initialUSBStatus ? 1 : 0, lastUSBStatus.load() ? 1 : 0);
+        
+        // Register as observer for PowerStatus changes
+        powerStatusObserver.observe(&powerStatus->onNewStatus);
+    } else {
+        LOG_WARN("PowerProfileManager init: powerStatus is NULL!");
+        lastUSBStatus.store(false);  // Default to false if no PowerStatus
+    }
+    
+    // Set initial active profile
+    updateActiveProfile();
+    
+    LOG_INFO("PowerProfileManager initialized, granular mode: %s", 
+             granularEnabled.load() ? "enabled" : "disabled");
+}
+
+bool PowerProfileManager::updateActiveProfile()
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* newProfile = selectActiveProfile();
+    const meshtastic_Config_PowerConfig_PowerProfile* oldProfile = currentProfile.load();
+    
+    if (newProfile != oldProfile) {
+        currentProfile.store(newProfile);
+        
+        // Update USB status cache
+        if (powerStatus) {
+            lastUSBStatus.store(powerStatus->getHasUSB());
+        }
+        
+        LOG_INFO("Power profile changed: %s", 
+                 granularEnabled.load() ? 
+                 (powerStatus && powerStatus->getHasUSB() ? "Granular Plugged" : "Granular Battery") :
+                 (newProfile == &legacyPowerSavingProfile ? "Legacy Power Saving" : "Legacy Normal"));
+        
+        // Schedule PowerFSM recreation to use new profile settings
+        #if !EXCLUDE_POWER_FSM
+        PowerFSM_scheduleRecreation();
+        #endif
+        
+        return true;
+    }
+    
+    return false;
+}
+
+const meshtastic_Config_PowerConfig_PowerProfile* PowerProfileManager::selectActiveProfile()
+{
+    if (!granularEnabled.load()) {
+        // Legacy mode - use old power saving logic
+        return getLegacyProfile();
+    }
+    
+    // Granular mode - compute layered profile
+    return computeLayeredProfile();
+}
+
+const meshtastic_Config_PowerConfig_PowerProfile* PowerProfileManager::getLegacyProfile()
+{
+    // Use legacy power saving logic
+    bool isRouter = (config.device.role == meshtastic_Config_DeviceConfig_Role_ROUTER);
+    bool isPowerSavingMode = config.power.is_power_saving || isRouter;
+    
+    if (isPowerSavingMode) {
+        return &legacyPowerSavingProfile;
+    } else {
+        return &legacyNormalProfile;
+    }
+}
+
+const meshtastic_Config_PowerConfig_PowerProfile* PowerProfileManager::computeLayeredProfile()
+{
+    bool hasUSB = powerStatus ? powerStatus->getHasUSB() : false;
+    
+    // Layer 1: Start with system defaults based on power source
+    const meshtastic_Config_PowerConfig_PowerProfile* baseProfile;
+    
+    switch (config.power.force_profile) {
+        case meshtastic_Config_PowerConfig_ProfileOverride_PROFILE_ALWAYS_PLUGGED:
+            baseProfile = &systemDefaultPluggedProfile;
+            break;
+            
+        case meshtastic_Config_PowerConfig_ProfileOverride_PROFILE_ALWAYS_BATTERY:
+            baseProfile = &systemDefaultBatteryProfile;
+            break;
+            
+        case meshtastic_Config_PowerConfig_ProfileOverride_PROFILE_AUTO:
+        default:
+            // Automatic selection based on power source
+            baseProfile = hasUSB ? &systemDefaultPluggedProfile : &systemDefaultBatteryProfile;
+            break;
+    }
+    
+    // Copy base profile to working profile
+    computedProfile = *baseProfile;
+    
+    // Layer 2: Apply role-specific modifiers
+    applyRoleModifiers(&computedProfile, config.device.role);
+    
+    // Layer 3: Apply user overrides
+    applyUserOverrides(&computedProfile, hasUSB);
+    
+    return &computedProfile;
+}
+
+void PowerProfileManager::applyRoleModifiers(meshtastic_Config_PowerConfig_PowerProfile* profile, 
+                                           meshtastic_Config_DeviceConfig_Role role)
+{
+    switch (role) {
+        case meshtastic_Config_DeviceConfig_Role_ROUTER:
+            // Routers must stay awake to relay packets
+            profile->allow_deep_sleep = false;
+            profile->allow_light_sleep = false;  // Stay fully awake for immediate routing
+            profile->min_wake_secs = 1;  // Quick response time
+            profile->max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK;
+            profile->screen_timeout_secs = 1;  // Very quick screen timeout for routers
+            // Routers typically show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
+            break;
+            
+        case meshtastic_Config_DeviceConfig_Role_TRACKER:
+            // Trackers prioritize GPS and location updates
+            profile->gps_enabled = true;
+            profile->screen_timeout_secs = 10;  // Quick screen timeout to save power
+            // Trackers should show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
+            break;
+            
+        case meshtastic_Config_DeviceConfig_Role_SENSOR:
+            // Sensors prioritize power efficiency
+            profile->bluetooth_enabled = false;  // Usually don't need BT
+            profile->screen_stays_responsive = false;  // Don't wake screen for packets
+            profile->screen_timeout_secs = 5;  // Very quick screen timeout
+            // Sensors should show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
+            break;
+            
+        case meshtastic_Config_DeviceConfig_Role_REPEATER:
+            // Repeaters must stay awake to relay packets
+            profile->allow_deep_sleep = false;
+            profile->allow_light_sleep = false;  // Stay fully awake for immediate routing
+            profile->min_wake_secs = 1;  // Quick response time
+            profile->max_power_state = meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState_MAX_DARK;
+            profile->screen_timeout_secs = 1;  // Very quick screen timeout for repeaters
+            // Repeaters should show heartbeat only (not message notifications)
+            if (profile->led_config.mode == meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_MESSAGE_INDICATOR) {
+                profile->led_config.mode = meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_HEARTBEAT;
+            }
+            break;
+            
+        case meshtastic_Config_DeviceConfig_Role_CLIENT_MUTE:
+            // Muted clients can be more aggressive with power saving
+            profile->screen_stays_responsive = false;
+            break;
+            
+        case meshtastic_Config_DeviceConfig_Role_CLIENT:
+        default:
+            // Default client behavior - no modifications needed
+            break;
+    }
+}
+
+void PowerProfileManager::applyUserOverrides(meshtastic_Config_PowerConfig_PowerProfile* profile, bool hasUSB)
+{
+    // Apply user overrides from the appropriate profile
+    const meshtastic_Config_PowerConfig_PowerProfile* userProfile;
+    
+    if (hasUSB && config.power.has_plugged_in_profile) {
+        userProfile = &config.power.plugged_in_profile;
+    } else if (!hasUSB && config.power.has_battery_profile) {
+        userProfile = &config.power.battery_profile;
+    } else {
+        // No user overrides to apply
+        return;
+    }
+    
+    // Apply any non-zero/non-default user settings
+    // Note: In protobuf, bool fields are always present, but we could add a "use_default" pattern later
+    
+    // For now, apply all user settings (this gives full user control)
+    *profile = *userProfile;
+}
+
+const meshtastic_Config_PowerConfig_PowerProfile* PowerProfileManager::getActiveProfile() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = currentProfile.load();
+    return profile ? profile : &legacyNormalProfile;  // Fallback to safe default
+}
+
+bool PowerProfileManager::isGranularModeEnabled() const
+{
+    // TODO ce+ remove this after testing
+    return true;
+//    return granularEnabled.load();
+}
+
+void PowerProfileManager::forceProfile(const meshtastic_Config_PowerConfig_PowerProfile* profile)
+{
+    if (profile) {
+        currentProfile.store(profile);
+        LOG_INFO("Power profile forced to custom profile");
+    }
+}
+
+// Profile query methods
+
+bool PowerProfileManager::allowDeepSleep() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->allow_deep_sleep;
+}
+
+bool PowerProfileManager::allowLightSleep() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->allow_light_sleep;
+}
+
+bool PowerProfileManager::bluetoothEnabled() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->bluetooth_enabled;
+}
+
+bool PowerProfileManager::wifiEnabled() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->wifi_enabled;
+}
+
+bool PowerProfileManager::screenStaysResponsive() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->screen_stays_responsive;
+}
+
+bool PowerProfileManager::gpsEnabled() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->gps_enabled;
+}
+
+bool PowerProfileManager::statusLedEnabled() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    
+    // Check if LED is disabled globally in device config
+    if (config.device.led_heartbeat_disabled) {
+        return false;
+    }
+    
+    // Check if LED mode is not disabled
+    return profile->led_config.mode != meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED;
+}
+
+meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode PowerProfileManager::getLedMode() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    
+    // Check if LED is disabled globally in device config
+    if (config.device.led_heartbeat_disabled) {
+        return meshtastic_Config_PowerConfig_PowerProfile_LedConfig_LedMode_DISABLED;
+    }
+    
+    return profile->led_config.mode;
+}
+
+uint32_t PowerProfileManager::getLedBrightness() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    
+    // Check if LED is disabled globally in device config
+    if (config.device.led_heartbeat_disabled) {
+        return 0;
+    }
+    
+    return profile->led_config.brightness;
+}
+
+uint32_t PowerProfileManager::getScreenTimeoutSecs() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    if (profile->screen_timeout_secs > 0) {
+        return profile->screen_timeout_secs;
+    }
+    // Fall back to system default
+    return Default::getConfiguredOrDefaultMs(config.display.screen_on_secs, default_screen_on_secs) / 1000;
+}
+
+uint32_t PowerProfileManager::getBluetoothTimeoutSecs() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    if (profile->bluetooth_timeout_secs > 0) {
+        return profile->bluetooth_timeout_secs;
+    }
+    // Fall back to system default
+    return Default::getConfiguredOrDefaultMs(config.power.wait_bluetooth_secs, default_wait_bluetooth_secs) / 1000;
+}
+
+uint32_t PowerProfileManager::getMinWakeSecs() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    if (profile->min_wake_secs > 0) {
+        return profile->min_wake_secs;
+    }
+    // Fall back to system default
+    return Default::getConfiguredOrDefaultMs(config.power.min_wake_secs, default_min_wake_secs) / 1000;
+}
+
+meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState PowerProfileManager::getMaxPowerState() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->max_power_state;
+}
+
+bool PowerProfileManager::isPowerStateAllowed(meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState state) const
+{
+    meshtastic_Config_PowerConfig_PowerProfile_MaxPowerState maxState = getMaxPowerState();
+    
+    // Lower enum values represent deeper power states
+    // If max state is MAX_DARK (3), then SDS (0), LS (1), NB (2), and DARK (3) are all disallowed
+    // Only ON (4) would be allowed, but since we're checking if 'state' is allowed,
+    // we need to check if 'state' is >= maxState
+    return state >= maxState;
+}
+
+int PowerProfileManager::onPowerStatusUpdate(const meshtastic::Status *newStatus)
+{
+    // Check if this is actually a PowerStatus update
+    if (newStatus->getStatusType() != STATUS_TYPE_POWER) {
+        return 0; // Not a power status update, ignore
+    }
+    
+    // Cast to PowerStatus (safe because we checked the type)
+    const meshtastic::PowerStatus *powerStatus = static_cast<const meshtastic::PowerStatus *>(newStatus);
+    
+    // Check if USB status has changed
+    bool currentUSBStatus = powerStatus->getHasUSB();
+    bool previousUSBStatus = lastUSBStatus.load();
+    
+    LOG_DEBUG("PowerProfileManager received PowerStatus update: USB=%d, Charging=%d (cached USB was: %d)", 
+             currentUSBStatus ? 1 : 0, powerStatus->getIsCharging() ? 1 : 0, previousUSBStatus ? 1 : 0);
+    
+    if (currentUSBStatus != previousUSBStatus) {
+        LOG_DEBUG("PowerProfileManager detected USB status change: %d -> %d - forcing profile update", 
+                 previousUSBStatus ? 1 : 0, currentUSBStatus ? 1 : 0);
+        
+        // Update the cached USB status BEFORE calling updateActiveProfile
+        lastUSBStatus.store(currentUSBStatus);
+        
+        // Force profile update - USB status change always triggers PowerFSM recreation
+        // This ensures we react to power state changes even if profile content is identical
+        updateActiveProfile();  // Don't check return value
+        
+        LOG_DEBUG("PowerProfileManager about to trigger PowerFSM recreation due to power status change");
+        
+        #if !EXCLUDE_POWER_FSM
+        PowerFSM_scheduleRecreation();
+        LOG_DEBUG("PowerProfileManager triggered PowerFSM recreation");
+        #else
+        LOG_WARN("PowerProfileManager - PowerFSM recreation excluded by build config");
+        #endif
+        
+    } else {
+        LOG_DEBUG("PowerProfileManager - no USB status change, ignoring update");
+    }
+    
+    return 0;
+}
+
+meshtastic_Config_PowerConfig_PowerProfile_BleWakeMode PowerProfileManager::getBleWakeMode() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    return profile->ble_wake_mode;
+}
+
+uint32_t PowerProfileManager::getBleButtonTimeoutSecs() const
+{
+    const meshtastic_Config_PowerConfig_PowerProfile* profile = getActiveProfile();
+    if (profile->ble_button_timeout_secs > 0) {
+        return profile->ble_button_timeout_secs;
+    }
+    // Fall back to system default (5 minutes)
+    return 300;
+}

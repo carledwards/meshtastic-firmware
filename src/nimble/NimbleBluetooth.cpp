@@ -3,6 +3,7 @@
 #include "BluetoothCommon.h"
 #include "NimbleBluetooth.h"
 #include "PowerFSM.h"
+#include "PowerProfileManager.h"
 
 #include "main.h"
 #include "mesh/PhoneAPI.h"
@@ -148,6 +149,15 @@ class NimbleBluetoothServerCallback : public NimBLEServerCallbacks
         if (bluetoothPhoneAPI) {
             bluetoothPhoneAPI->close();
         }
+
+        // Restart advertising when client disconnects (respecting current power profile)
+        extern NimbleBluetooth *nimbleBluetooth;
+        if (nimbleBluetooth && config.bluetooth.enabled && powerProfileManager.bluetoothEnabled()) {
+            LOG_DEBUG("POWER: Restarting BLE advertising after client disconnect (per current power profile)");
+            nimbleBluetooth->startAdvertising();
+        } else if (nimbleBluetooth && config.bluetooth.enabled && !powerProfileManager.bluetoothEnabled()) {
+            LOG_DEBUG("POWER: Not restarting BLE advertising - disabled by current power profile");
+        }
     }
 };
 
@@ -274,11 +284,30 @@ void NimbleBluetooth::setupService()
 
 void NimbleBluetooth::startAdvertising()
 {
-    NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
-    pAdvertising->reset();
-    pAdvertising->addServiceUUID(MESH_SERVICE_UUID);
-    pAdvertising->addServiceUUID(NimBLEUUID((uint16_t)0x180f)); // 0x180F is the Battery Service
-    pAdvertising->start(0);
+    if (!advertisingActive) {
+        LOG_DEBUG("POWER: Starting BLE advertising - device discoverable");
+        NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+        pAdvertising->reset();
+        pAdvertising->addServiceUUID(MESH_SERVICE_UUID);
+        pAdvertising->addServiceUUID(NimBLEUUID((uint16_t)0x180f)); // 0x180F is the Battery Service
+        pAdvertising->start(0);
+        advertisingActive = true;
+    }
+}
+
+void NimbleBluetooth::stopAdvertising()
+{
+    if (advertisingActive) {
+        LOG_DEBUG("POWER: Stopping BLE advertising - device hidden, existing connections preserved");
+        NimBLEAdvertising *pAdvertising = NimBLEDevice::getAdvertising();
+        pAdvertising->stop();
+        advertisingActive = false;
+    }
+}
+
+bool NimbleBluetooth::isAdvertising()
+{
+    return advertisingActive;
 }
 
 /// Given a level between 0-100, update the BLE attribute
