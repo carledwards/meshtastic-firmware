@@ -21,6 +21,40 @@
 	<a href="https://meshtastic.org/docs/">Documentation</a>
 </div>
 
+## Fork Features
+
+- User LED can either be a "heartbeat" or a "new message indicator"
+  - when set to a message indicator, fast blink is a personal/direct message, slow blink is a public message
+  - pressing the main pushbutton will clear the message indicator, or, by pulling messages from the PhoneAPI
+  - Default is "new message indicator" for `CLIENT` and `CLIENT_MUTE`
+- Added a build variants:
+  - `heltec-v3-release`: no debug logging and optimized build
+  - `heltec-v3-usb-detect`: using a hardware mod where PIN 19 is used to perform a voltage detection from USB power
+  - `halted-v3-usb-detect-release`: no debug logging and optimized build
+- Heltec V3 can have up to 400 node entries (when not using a webserver build)
+  - if memory gets below 20%, nodes entries will be pruned
+- Added Power Management Profiles
+  - two profiles: USB and Battery
+  - When on Battery, for `CLIENT` and `CLIENT_MUTE` the defaults are:
+    - The screen remains off when new packets arrive
+    - The User LED is disabled
+    - BLE will stop advertising (but an existing paired client can connect)
+    - The system will eventually go down to Light Sleep mode:
+      - Will wake on new LoRa packets or the User button is pressed
+      - BLE will be fully shutdown until the User button is pressed
+  - when the device power switches between USB vs Battery, a new profile is created and the old one is swapped out
+  - Note: on the Heltec V3, there is no "direct" detection if the USB is connected/disconnected. Once the battery reached a specific threshold, it will determine the correct power mode. This means that while charging a low/dead battery will keep the device in a "battery state" until it reaches fullness.
+
+### Battery Saving Results
+- Tested with two Helvec V3 devices, both running in `CLIENT_MUTE` mode, `US` Region, 1100mAh battery:
+  - Device 1: Stock Firmware `2_6_11_beta` with Power Savings enabled: **~12 hours**
+  - Device 2: This firmware using the `heltec-v3-release` build variant: **~36 hours**
+
+### Note
+- _Only tested on the Heltec V3_
+- _More testing is needed for edge cases_
+- _Started to change up what is shown on the screen, still needs more work to make this only show a list of new messages, not node info_
+
 ## Overview
 
 This repository contains the official device firmware for Meshtastic, an open-source LoRa mesh networking project designed for long-range, low-power communication without relying on internet or cellular infrastructure. The firmware supports various hardware platforms, including ESP32, nRF52, RP2040/RP2350, and Linux-based devices.
