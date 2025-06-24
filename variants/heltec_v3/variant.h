@@ -20,6 +20,15 @@
 #define ADC_ATTENUATION ADC_ATTEN_DB_2_5 // lower dB for high resistance voltage divider
 #define ADC_MULTIPLIER 4.9 * 1.045
 
+#ifdef HELTEC_V3_USB_DETECT
+// USB Power Detection via GPIO19 with voltage divider from VUSB
+// Hardware modification required: 
+// - 10kΩ resistor from VUSB to GPIO19
+// - 6.6kΩ resistor (two 3.3kΩ in series) from GPIO19 to GND
+// This gives 1.99V on GPIO19 when USB is connected (safe margin above 1.5V threshold)
+#define EXT_PWR_DETECT 19
+#endif
+
 #define USE_SX1262
 
 #define LORA_DIO0 -1 // a No connect on the SX1262 module

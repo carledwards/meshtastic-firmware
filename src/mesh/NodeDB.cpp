@@ -1676,7 +1676,119 @@ meshtastic_NodeInfoLite *NodeDB::getMeshNode(NodeNum n)
 // returns true if the maximum number of nodes is reached or we are running low on memory
 bool NodeDB::isFull()
 {
-    return (numMeshNodes >= MAX_NUM_NODES) || (memGet.getFreeHeap() < MINIMUM_SAFE_FREE_HEAP);
+    uint32_t freeHeap = memGet.getFreeHeap();
+    uint32_t totalHeap = memGet.getHeapSize();
+    
+    // If we're at the hard node limit, we're full
+    if (numMeshNodes >= MAX_NUM_NODES) {
+        return true;
+    }
+    
+    // If we're below the critical memory threshold, we're full
+    if (freeHeap < MINIMUM_SAFE_FREE_HEAP) {
+        return true;
+    }
+    
+    // Adaptive memory management: trigger cleanup when free heap drops below 20%
+    uint32_t memoryThreshold = totalHeap / 5; // 20% of total heap
+    if (freeHeap < memoryThreshold) {
+        LOG_INFO("Memory pressure detected: %u/%u bytes free (%.1f%%). Triggering adaptive cleanup", 
+                 freeHeap, totalHeap, (float)freeHeap * 100.0 / totalHeap);
+        
+        // Target 30% free heap after cleanup
+        uint32_t targetFreeHeap = (totalHeap * 3) / 10; // 30% of total heap
+        cleanupOldestNodes(targetFreeHeap);
+        
+        // Check if we're still under pressure after cleanup
+        freeHeap = memGet.getFreeHeap();
+        if (freeHeap < MINIMUM_SAFE_FREE_HEAP) {
+            return true;
+        }
+    }
+    
+    return false;
+}
+
+// Adaptive memory management - cleanup oldest nodes when memory gets tight
+void NodeDB::cleanupOldestNodes(uint32_t targetFreeHeap)
+{
+    uint32_t currentFreeHeap = memGet.getFreeHeap();
+    
+    // If we're already at target, no cleanup needed
+    if (currentFreeHeap >= targetFreeHeap) {
+        LOG_DEBUG("No cleanup needed: %u bytes free (target: %u)", currentFreeHeap, targetFreeHeap);
+        return;
+    }
+    
+    LOG_INFO("Starting adaptive cleanup: %u bytes free, target: %u bytes", currentFreeHeap, targetFreeHeap);
+    
+    // Create a list of candidate nodes for removal (skip index 0 which is our own node)
+    std::vector<std::pair<uint32_t, int>> candidates; // pair of (last_heard, index)
+    
+    for (int i = 1; i < numMeshNodes; i++) {
+        meshtastic_NodeInfoLite *node = &meshNodes->at(i);
+        
+        // Never remove favorite nodes
+        if (node->is_favorite) {
+            continue;
+        }
+        
+        // Add to candidates list with last_heard timestamp
+        candidates.push_back(std::make_pair(node->last_heard, i));
+    }
+    
+    // Sort candidates by last_heard (oldest first)
+    std::sort(candidates.begin(), candidates.end());
+    
+    int removed = 0;
+    uint32_t bytesFreedEstimate = 0;
+    
+    // Remove oldest nodes until we reach target memory or run out of candidates
+    for (auto &candidate : candidates) {
+        int nodeIndex = candidate.second;
+        meshtastic_NodeInfoLite *node = &meshNodes->at(nodeIndex);
+        
+        // Calculate days since last heard for logging
+        uint32_t daysSinceHeard = sinceLastSeen(node) / (24 * 60 * 60);
+        
+        LOG_INFO("Removing old node 0x%08x (%s) - last heard %u days ago", 
+                 node->num, node->has_user ? node->user.long_name : "Unknown", daysSinceHeard);
+        
+        // Remove this node by shifting remaining nodes down
+        for (int j = nodeIndex - removed; j < numMeshNodes - 1; j++) {
+            meshNodes->at(j) = meshNodes->at(j + 1);
+        }
+        
+        removed++;
+        bytesFreedEstimate += sizeof(meshtastic_NodeInfoLite);
+        
+        // Check if we've freed enough memory (estimate)
+        currentFreeHeap = memGet.getFreeHeap();
+        if (currentFreeHeap >= targetFreeHeap) {
+            LOG_INFO("Target memory reached after removing %d nodes", removed);
+            break;
+        }
+    }
+    
+    if (removed > 0) {
+        // Update node count and clear the freed slots
+        numMeshNodes -= removed;
+        std::fill(nodeDatabase.nodes.begin() + numMeshNodes, 
+                  nodeDatabase.nodes.begin() + numMeshNodes + removed,
+                  meshtastic_NodeInfoLite());
+        
+        // Save the updated database
+        saveNodeDatabaseToDisk();
+        
+        uint32_t finalFreeHeap = memGet.getFreeHeap();
+        LOG_INFO("Adaptive cleanup complete: removed %d nodes, %u bytes free (target: %u)", 
+                 removed, finalFreeHeap, targetFreeHeap);
+        
+        // Notify observers of the change
+        notifyObservers(true);
+    } else {
+        LOG_WARN("No nodes available for cleanup (all remaining nodes are favorites)");
+    }
 }
 
 /// Find a node in our DB, create an empty NodeInfo if missing

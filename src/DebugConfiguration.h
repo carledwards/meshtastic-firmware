@@ -46,13 +46,32 @@
 #define LOG_TRACE(...) SEGGER_RTT_printf(0, __VA_ARGS__)
 #else
 #if defined(DEBUG_PORT) && !defined(DEBUG_MUTE)
+// Meshtastic log level control - can be overridden by build flags
+#ifdef DISABLE_DEBUG_LOGS
+#define LOG_DEBUG(...)
+#else
 #define LOG_DEBUG(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#endif
+
+#ifdef DISABLE_INFO_LOGS
+#define LOG_INFO(...)
+#else
 #define LOG_INFO(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_INFO, __VA_ARGS__)
+#endif
+
+#ifdef DISABLE_TRACE_LOGS
+#define LOG_TRACE(...)
+#else
+#define LOG_TRACE(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_TRACE, __VA_ARGS__)
+#endif
+
+// WARN, ERROR, and CRIT are always enabled (safety-critical)
 #define LOG_WARN(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_WARN, __VA_ARGS__)
 #define LOG_ERROR(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_ERROR, __VA_ARGS__)
 #define LOG_CRIT(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_CRIT, __VA_ARGS__)
-#define LOG_TRACE(...) DEBUG_PORT.log(MESHTASTIC_LOG_LEVEL_TRACE, __VA_ARGS__)
+
 #else
+// DEBUG_PORT not defined or DEBUG_MUTE is set - disable all logging
 #define LOG_DEBUG(...)
 #define LOG_INFO(...)
 #define LOG_WARN(...)

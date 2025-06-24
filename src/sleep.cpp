@@ -192,6 +192,7 @@ static void waitEnterSleep(bool skipPreflight = false)
 
     // Code that still needs to be moved into notifyObservers
     console->flush();          // send all our characters before we stop cpu clock
+    LOG_DEBUG("POWER: Disabling Bluetooth before sleep");
     setBluetoothEnable(false); // has to be off before calling light sleep
 }
 
@@ -352,7 +353,7 @@ void doDeepSleep(uint32_t msecToWake, bool skipPreflight = false, bool skipSaveN
  */
 esp_sleep_wakeup_cause_t doLightSleep(uint64_t sleepMsec) // FIXME, use a more reasonable default
 {
-    // LOG_DEBUG("Enter light sleep");
+    LOG_DEBUG("POWER: Entering light sleep for %llu ms", sleepMsec);
 
     // LORA_DIO1 is an extended IO pin. Setting it as a wake-up pin will cause problems, such as the indicator device not entering
     // LightSleep.

@@ -21,12 +21,12 @@ bool NodeInfoModule::handleReceivedProtobuf(const meshtastic_MeshPacket &mp, mes
 
     bool wasBroadcast = isBroadcast(mp.to);
 
-    // Show new nodes on LCD screen
-    if (wasBroadcast) {
-        String lcd = String("Joined: ") + p.long_name + "\n";
-        if (screen)
-            screen->print(lcd.c_str());
-    }
+    // Skip showing new nodes on LCD screen to avoid clutter and unwanted screen wake-ups
+    // if (wasBroadcast) {
+    //     String lcd = String("Joined: ") + p.long_name + "\n";
+    //     if (screen)
+    //         screen->print(lcd.c_str());
+    // }
 
     // if user has changed while packet was not for us, inform phone
     if (hasChanged && !wasBroadcast && !isToUs(&mp))

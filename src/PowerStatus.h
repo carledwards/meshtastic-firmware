@@ -49,7 +49,9 @@ class PowerStatus : public Status
 
     bool getHasBattery() const { return hasBattery == OptTrue; }
 
-    bool getHasUSB() const { return hasUSB == OptTrue; }
+    bool getHasUSB() const { 
+        return hasUSB == OptTrue; 
+    }
 
     /// Can we even know if this board has USB power or not
     bool knowsUSB() const { return hasUSB != OptUnknown; }
@@ -74,7 +76,7 @@ class PowerStatus : public Status
 
     bool matches(const PowerStatus *newStatus) const
     {
-        return (newStatus->getHasBattery() != hasBattery || newStatus->getHasUSB() != hasUSB ||
+        return (newStatus->getHasBattery() != getHasBattery() || newStatus->getHasUSB() != getHasUSB() ||
                 newStatus->getBatteryVoltageMv() != batteryVoltageMv);
     }
     int updateStatus(const PowerStatus *newStatus)

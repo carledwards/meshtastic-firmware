@@ -186,6 +186,8 @@ int32_t ButtonThread::runOnce()
         switch (btnEvent) {
         case BUTTON_EVENT_PRESSED: {
             LOG_BUTTON("press!");
+            // Mark user interaction for LED notification system
+            setUserInteracted();
             // If a nag notification is running, stop it and prevent other actions
             if (moduleConfig.external_notification.enabled && (externalNotificationModule->nagCycleCutoff != UINT32_MAX)) {
                 externalNotificationModule->stopNow();
@@ -219,6 +221,8 @@ int32_t ButtonThread::runOnce()
 
         case BUTTON_EVENT_DOUBLE_PRESSED: {
             LOG_BUTTON("Double press!");
+            // Mark user interaction for LED notification system
+            setUserInteracted();
 #ifdef ELECROW_ThinkNode_M1
             digitalWrite(PIN_EINK_EN, digitalRead(PIN_EINK_EN) == LOW);
             break;
@@ -229,6 +233,8 @@ int32_t ButtonThread::runOnce()
 
         case BUTTON_EVENT_MULTI_PRESSED: {
             LOG_BUTTON("Mulitipress! %hux", multipressClickCount);
+            // Mark user interaction for LED notification system
+            setUserInteracted();
             switch (multipressClickCount) {
 #if HAS_GPS && !defined(ELECROW_ThinkNode_M1)
             // 3 clicks: toggle GPS

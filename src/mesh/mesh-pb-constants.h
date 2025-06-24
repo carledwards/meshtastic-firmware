@@ -33,6 +33,18 @@ static_assert(sizeof(meshtastic_NodeInfoLite) <= 200, "NodeInfoLite size increas
 static inline int get_max_num_nodes()
 {
     uint32_t flash_size = ESP.getFlashChipSize() / (1024 * 1024); // Convert Bytes to MB
+    
+#if MESHTASTIC_EXCLUDE_WEBSERVER
+    // Higher limits when web server is disabled (saves ~20-50KB RAM)
+    if (flash_size >= 15) {
+        return 500;
+    } else if (flash_size >= 7) {
+        return 400;  // Heltec v3 with 8MB flash - increased from 200 to 400
+    } else {
+        return 100;
+    }
+#else
+    // Conservative limits when web server is enabled
     if (flash_size >= 15) {
         return 250;
     } else if (flash_size >= 7) {
@@ -40,6 +52,7 @@ static inline int get_max_num_nodes()
     } else {
         return 100;
     }
+#endif
 }
 #define MAX_NUM_NODES get_max_num_nodes()
 #else

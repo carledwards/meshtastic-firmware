@@ -39,13 +39,22 @@ void setBluetoothEnable(bool enable)
         if (!nimbleBluetooth) {
             nimbleBluetooth = new NimbleBluetooth();
         }
+        
         if (enable && !nimbleBluetooth->isActive()) {
+            // Full BLE stack initialization
+            LOG_DEBUG("POWER: Initializing Bluetooth stack and starting advertising");
             powerMon->setState(meshtastic_PowerMon_State_BT_On);
             nimbleBluetooth->setup();
+        } else if (enable && nimbleBluetooth->isActive() && !nimbleBluetooth->isAdvertising()) {
+            // BLE stack is active, just start advertising
+            LOG_DEBUG("POWER: Starting BLE advertising - device discoverable");
+            nimbleBluetooth->startAdvertising();
+        } else if (!enable && nimbleBluetooth->isActive() && nimbleBluetooth->isAdvertising()) {
+            // Stop advertising but preserve connections and stack
+            LOG_DEBUG("POWER: Stopping BLE advertising - device hidden, connections preserved");
+            nimbleBluetooth->stopAdvertising();
         }
-        // For ESP32, no way to recover from bluetooth shutdown without reboot
-        // BLE advertising automatically stops when MCU enters light-sleep(?)
-        // For deep-sleep, shutdown hardware with nimbleBluetooth->deinit(). Requires reboot to reverse
+        // Note: For full BLE shutdown (deep sleep), use nimbleBluetooth->deinit() which requires reboot
     }
 }
 #else
